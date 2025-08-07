@@ -1,0 +1,24 @@
+---
+run_num: 2
+run_name: 'PAC'
+time: 'data_sample.csv//time'
+conditions: 'data_sample.csv//Car_connected' # Redondant, à suppr
+optimization_variable: 'cost'
+optimization_sense: 'minimize'
+
+# Environments connection conditions
+environments_connections:
+  house:
+    envs: 'car'
+    conditions_type: 'input'
+    conditions: 'data_sample.csv//Car_connected'
+  trailer:
+    envs: 
+      - 'house'
+      - 'car'
+    conditions_type:
+      - 'input'
+      - 'input'
+    conditions:
+      - 'data_sample.csv//Car_connected'
+      - 'data_sample.csv//Car_connected'

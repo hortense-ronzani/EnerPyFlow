@@ -1,0 +1,137 @@
+---
+Production:
+  PV:
+    energy: 'electricity'
+    environment: 'house'
+    minimum_type: 'constant'
+    minimum: 0
+    maximum_type: 'hourly'
+    maximum: 'data_sample.csv//PV (Wh)'
+    installed_capacity: 1000 # Wc
+
+  grid:
+    energy: 'electricity'
+    environment: 'house'
+    minimum_type: 'constant'
+    minimum: -3000 # W (~kVA)
+    maximum_type: 'constant'
+    maximum: 3000 # W
+    cost_type: 'hourly'
+    cost: 'data_sample.csv//Electricity_price (euros/Wh)'
+
+  external_charging_station:
+    energy: 'electricity'
+    environment: 'car'
+    minimum_type: 'constant'
+    minimum: 0
+    cost_type: 'constant'
+    cost: 0.000150 # €/Wh 150 €/MWh
+  
+  gas_station:
+    energy: 'oil'
+    environment: 'car'
+    minimum_type: 'constant'
+    minimum: 0
+    cost_type: 'constant'
+    cost: 2 # €/L
+
+# Consumptions are inputs; energy levels required are not variable
+Consumption:
+  house_fixed_electricity_consumption:
+    energy: 'electricity'
+    environment: 'house'
+    value_type: 'hourly'
+    value: 'data_sample.csv//conso (Wh)'
+    factor: 0.9
+    dispatchable: False
+
+  house_dispatchable_electricity_consumption:
+    energy: 'electricity'
+    environment: 'house'
+    value_type: 'hourly'
+    value: 'data_sample.csv//conso (Wh)'
+    factor: 0.1
+    dispatchable: True
+    dispatch_window: 48 # h (-24h, +24h)
+    maximum_hourly_dispatch: 100. # Wh
+
+  car_use:
+    energy: 'distance'
+    environment: 'car'
+    value_type: 'hourly'
+    value: 'data_sample.csv//Distances_traveled (km)'
+
+  house_heating:
+    energy: 'heat'
+    environment: 'house'
+    value_type: 'constant'
+    value: 250. # Wh thermiques
+
+Storage:
+  home_battery:
+    energy: 'electricity'
+    environment: 'house'
+    capacity: 5000 # Wh
+    efficiency: 0.95
+    initial_SOC: 0.5 # SOC of 50% at t0
+    calendar_aging: 0.999
+  
+  car_battery:
+    energy: 'electricity'
+    environment: 'car'
+    capacity: 33000 # Wh
+    efficiency: 0.95
+    initial_SOC: 0.5 # SOC of 50% at t0
+    calendar_aging: 0.999
+
+  trailer_battery:
+    energy: 'electricity'
+    environment: 'trailer'
+    capacity: 5000 # Wh
+    efficiency: 0.95
+    initial_SOC: 0.5 # SOC of 50% at t0
+    calendar_aging: 0.999
+
+  house_temperature:
+    energy: 'heat'
+    environment: 'house'
+    capacity: 2500.
+    efficiency: 1.
+    initial_SOC: 0.5
+    calendar_aging: 1.
+
+Conversion:
+  electric_engine:
+    environment: 'car'
+    input_energy: 'electricity'
+    output_energies:
+      distance: 0.007 # = 1./150 1/(Wh/km)
+      heat: 0.1 # (10% of heat losses)
+  
+  combustion_engine:
+    environment: 'car'
+    input_energy: 'oil'
+    output_energies:
+      distance: 16.7 # = 1/0.06 1/(L/km)
+      heat: 5600. # = 8000*0.7 (PCI of oil * 70% of heat losses)
+
+  electric_heater:
+    environment: 'house'
+    input_energy: 'electricity'
+    output_energies:
+      heat: 1.
+
+  PAC:
+   environment: 'house'
+   input_energy: 'electricity'
+   output_energies:
+     heat: 3.
+
+  generator:
+    environment: 'car'
+    input_energy: 'oil'
+    output_energies:
+      electricity: 2800. # = 8000*0.35, PCI of oil * efficiency
+      heat: 5200. # 8000*0.65 PCI of oil * 65% of heat losses
+
+# oil_PCI: 29 MJ/L = 8000 Wh/L
