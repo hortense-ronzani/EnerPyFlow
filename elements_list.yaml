@@ -1,6 +1,7 @@
 ---
 Production:
   PV:
+    activate: True
     energy: 'electricity'
     environment: 'house'
     minimum_type: 'constant'
@@ -10,6 +11,7 @@ Production:
     installed_capacity: 1000 # Wc
 
   grid:
+    activate: True
     energy: 'electricity'
     environment: 'house'
     minimum_type: 'constant'
@@ -20,6 +22,7 @@ Production:
     cost: 'data_sample.csv//Electricity_price (euros/Wh)'
 
   external_charging_station:
+    activate: True
     energy: 'electricity'
     environment: 'car'
     minimum_type: 'constant'
@@ -28,6 +31,7 @@ Production:
     cost: 0.000150 # €/Wh 150 €/MWh
   
   gas_station:
+    activate: True
     energy: 'oil'
     environment: 'car'
     minimum_type: 'constant'
@@ -38,6 +42,7 @@ Production:
 # Consumptions are inputs; energy levels required are not variable
 Consumption:
   house_fixed_electricity_consumption:
+    activate: True
     energy: 'electricity'
     environment: 'house'
     value_type: 'hourly'
@@ -46,6 +51,7 @@ Consumption:
     dispatchable: False
 
   house_dispatchable_electricity_consumption:
+    activate: True
     energy: 'electricity'
     environment: 'house'
     value_type: 'hourly'
@@ -56,12 +62,14 @@ Consumption:
     maximum_hourly_dispatch: 100. # Wh
 
   car_use:
+    activate: True
     energy: 'distance'
     environment: 'car'
     value_type: 'hourly'
     value: 'data_sample.csv//Distances_traveled (km)'
 
   house_heating:
+    activate: True
     energy: 'heat'
     environment: 'house'
     value_type: 'constant'
@@ -69,6 +77,7 @@ Consumption:
 
 Storage:
   home_battery:
+    activate: True
     energy: 'electricity'
     environment: 'house'
     capacity: 5000 # Wh
@@ -77,6 +86,7 @@ Storage:
     calendar_aging: 0.999
   
   car_battery:
+    activate: True
     energy: 'electricity'
     environment: 'car'
     capacity: 33000 # Wh
@@ -85,6 +95,7 @@ Storage:
     calendar_aging: 0.999
 
   trailer_battery:
+    activate: True
     energy: 'electricity'
     environment: 'trailer'
     capacity: 5000 # Wh
@@ -93,6 +104,7 @@ Storage:
     calendar_aging: 0.999
 
   house_temperature:
+    activate: True
     energy: 'heat'
     environment: 'house'
     capacity: 2500.
@@ -102,6 +114,7 @@ Storage:
 
 Conversion:
   electric_engine:
+    activate: True
     environment: 'car'
     input_energy: 'electricity'
     output_energies:
@@ -109,6 +122,7 @@ Conversion:
       heat: 0.1 # (10% of heat losses)
   
   combustion_engine:
+    activate: True
     environment: 'car'
     input_energy: 'oil'
     output_energies:
@@ -116,18 +130,21 @@ Conversion:
       heat: 5600. # = 8000*0.7 (PCI of oil * 70% of heat losses)
 
   electric_heater:
+    activate: True
     environment: 'house'
     input_energy: 'electricity'
     output_energies:
       heat: 1.
 
   PAC:
-   environment: 'house'
-   input_energy: 'electricity'
-   output_energies:
+    activate: True
+    environment: 'house'
+    input_energy: 'electricity'
+    output_energies:
      heat: 3.
 
   generator:
+    activate: True
     environment: 'car'
     input_energy: 'oil'
     output_energies:
