@@ -243,9 +243,7 @@ class Consumption(Component):
                 print('ERROR: MAXIMUM HOURLY DISPATCH ALLOWED FOR CONSUMPTION IS NOT SUFFICIENT, ' \
                 'MUST BE AT LEAST ' + str(round(np.mean(self.value))+1))
 
-            # DataFrame with an empty column
-            self.y_vars = pd.DataFrame(index=[t for t in range(self.nb_of_timesteps)])
-
+            y_vars = {}
             # Dispatch every hourly consumption in the allowed time window
             for t_initial in range(self.nb_of_timesteps):
                 # At max, where can consumption initially at t_initial can be moved in the past
@@ -263,9 +261,11 @@ class Consumption(Component):
 
                 # Add constraint Somme_t(y_vars[t0, t]) = input_consumption[t0]
                 self.model += pl.lpSum(y_t_initial) == -value(self.value[t_initial])
-                self.y_vars.insert(loc=0,
-                                   column='y_' + self.name+ '_from_' + str(t_initial),
-                                   value=y_t_initial)
+                
+                column = 'y_' + self.name+ '_from_' + str(t_initial)
+                y_vars[column] = y_t_initial
+            
+            self.y_vars = pd.DataFrame(y_vars)
 
             # Flow_vars contains dispatched consumption
             self.flow_vars = [pl.LpVariable(self.name + '_' + str(t),
