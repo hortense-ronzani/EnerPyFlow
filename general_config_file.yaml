@@ -1,6 +1,6 @@
 ---
-run_num: 0
-run_name: 'test'
+run_num: 4
+run_name: 'PV_dim'
 time: 'data_sample.csv//time'
 optimization_variable: 'cost'
 optimization_sense: 'minimize'
@@ -8,10 +8,14 @@ optimization_sense: 'minimize'
 # Environments connection conditions
 environments_connections:
   house:
-    envs: 'car'
-    conditions_type: 'input'
-    conditions: 'data_sample.csv//house_car_connection'
-    reverse: False
+    envs:
+      - 'car'
+    conditions_type:
+      - 'input'
+    conditions:
+      - 'data_sample.csv//house_car_connection'
+    reverse:
+      - False
   trailer:
     envs:
       - 'car'

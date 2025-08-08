@@ -46,14 +46,14 @@ class Component:
 
         return hub
     
-    def link(self, hubs, print=False):
-        hub = self.get_hub(hubs, print=print)
+    # def link(self, hubs, log=False):
+    #     hub = self.get_hub(hubs, log=log)
         
-        self.flow_vars = [pl.LpVariable(self.name + '_to_hub_' + str(t)) for t in range(self.nb_of_timesteps)]
+    #     self.flow_vars = [pl.LpVariable(self.name + '_to_hub_' + str(t)) for t in range(self.nb_of_timesteps)]
         
-        hub.add_link(self.flow_vars)
+    #     hub.add_link(self.flow_vars)
 
-        return hubs
+    #     return hubs
     
 class Hub(Component):
     def __init__(self, environment, energy, model):
@@ -74,7 +74,7 @@ class Hub(Component):
             self.equation = [self.equation[t] - variables[t] for t in range(self.nb_of_timesteps)]
    
 class Conversion(Component):
-    def __init__(self, name, description, model):
+    def __init__(self, name, description, model, log=False):
         super().__init__(description['environment'], description['input_energy'], model)
 
         self.name = name
@@ -82,9 +82,12 @@ class Conversion(Component):
         self.input_energy = self.energy
         self.output_energies = description['output_energies']
         
-        print(name + ' created.')
+        if log:
+            print(name + ' created.')
 
-    def link(self, hubs, log=False):
+    def link(self, hubs, model, log=False):
+        self.model = model
+
         input_hub = self.get_hub(hubs, log=log)
         
         # Energy can only flow from the input hub to the output hubs
@@ -130,7 +133,7 @@ class Conversion(Component):
         return hubs, self.model
 
 class Storage(Component):
-    def __init__(self, name, description, model):
+    def __init__(self, name, description, model, log=False):
         super().__init__(description['environment'], description['energy'], model)
 
         self.name = name
@@ -139,14 +142,37 @@ class Storage(Component):
         self.efficiency = description['efficiency']
         self.initial_SOC = description['initial_SOC']
         self.calendar_aging = description['calendar_aging']
+        
+        try:
+            self.factor = description['factor']
+        except:
+            self.factor = 1.
+
+        try:
+            self.unit_cost = description['unit_cost']
+        except:
+            self.unit_cost = 0.
+        
+        if log:
+            print(name + ' created.')
+
+    def link(self, hubs, model, log=False):
+        self.model = model
 
         # Create variables to contain the state of charge of the storage
-        self.SOC = [pl.LpVariable(name + '_' + str(t),
-                                  lowBound=0, upBound=self.capacity) for t in range(self.nb_of_timesteps)]
+        self.SOC = [pl.LpVariable(self.name + '_' + str(t),
+                                  lowBound=0) for t in range(self.nb_of_timesteps)]
         
-        print(name + ' created.')
+        if self.factor == 'auto':
+            self.factor = pl.LpVariable(self.name + '_factor',
+                                        lowBound=0.,
+                                        upBound=5.)
 
-    def link(self, hubs, log=False):
+        for t in range(self.nb_of_timesteps):
+            self.model += self.SOC[t] <= self.capacity*self.factor
+
+        self.model.objective += self.factor * self.unit_cost
+
         # Get hub associated to storage
         hub = self.get_hub(hubs, log=log)
         
@@ -177,7 +203,7 @@ class Storage(Component):
         return hubs, self.model
 
 class Consumption(Component):
-    def __init__(self, name, description, model):
+    def __init__(self, name, description, model, log=False):
         super().__init__(description['environment'], description['energy'], model)
 
         self.name = name
@@ -186,7 +212,7 @@ class Consumption(Component):
             self.factor = description['factor']
         except KeyError:
             self.factor = 1.
-
+        
         self.value_type = description['value_type']
         self.value = utils.get_chronicle('value', description)*self.factor
         
@@ -198,13 +224,17 @@ class Consumption(Component):
             self.dispatchable = False
             self.dispatch_window = None
             self.maximum_hourly_dispatch = None
-        print(name + ' created.')
 
-    def link(self, hubs, log=False):
+        if log:
+            print(name + ' created.')
+
+    def link(self, hubs, model, log=False):
+        self.model = model
+
         hub = self.get_hub(hubs, log=log)
         
         if not self.dispatchable:
-            self.flow_vars = [self.factor*bound(-self.value, self.value_type, t) for t in range(self.nb_of_timesteps)]                           
+            self.flow_vars = [bound(-self.value, self.value_type, t) for t in range(self.nb_of_timesteps)]                           
             hub.add_link(self.flow_vars)
 
         if self.dispatchable:
@@ -249,7 +279,7 @@ class Consumption(Component):
         return hubs, self.model
 
 class Production(Component):
-    def __init__(self, name, description, model):
+    def __init__(self, name, description, model, log=False):
         super().__init__(description['environment'], description['energy'], model)
 
         self.name = name
@@ -260,6 +290,11 @@ class Production(Component):
             self.factor = 1.
 
         try:
+            self.unit_cost = description['unit_cost']
+        except KeyError:
+            self.unit_cost = 0.
+
+        try:
             self.minimum_type = description['minimum_type']
             self.minimum = utils.get_chronicle('minimum', description)
         except KeyError:
@@ -268,7 +303,7 @@ class Production(Component):
 
         try:
             self.maximum_type = description['maximum_type']
-            self.maximum = utils.get_chronicle('maximum', description)*self.factor
+            self.maximum = utils.get_chronicle('maximum', description)
         except KeyError:
             self.maximum_type = None
             self.maximum = None
@@ -280,14 +315,28 @@ class Production(Component):
             self.cost_type = 'constant'
             self.cost = 0.
         
-        print(name + ' created.')
+        if log:
+            print(name + ' created.')
 
-    def link(self, hubs, log=False):
+    def link(self, hubs, model, log=False):
+        self.model = model
+        self.flow_vars = [pl.LpVariable(self.name + '_to_hub_' + str(t)) for t in range(self.nb_of_timesteps)]
+
+        if self.factor == 'auto':
+            # TODO: change bounds
+            self.factor = pl.LpVariable(self.name + '_factor',
+                                        lowBound=0,
+                                        upBound=10)
+
+        self.model.objective += self.factor*self.unit_cost
+
+        for t in range(self.nb_of_timesteps):
+            if self.maximum_type is not None:
+                self.model += self.flow_vars[t] <= self.factor*bound(self.maximum, self.maximum_type, t)
+            if self.minimum_type is not None:
+                self.model += self.flow_vars[t] >= self.factor*bound(self.minimum, self.minimum_type, t)
+
         hub = self.get_hub(hubs, log=log)
-        
-        self.flow_vars = [pl.LpVariable(self.name + '_to_hub_' + str(t),
-                                       upBound=bound(self.maximum, self.maximum_type, t),
-                                       lowBound=bound(self.minimum, self.minimum_type, t)) for t in range(self.nb_of_timesteps)]
         
         hub.add_link(self.flow_vars)
 
@@ -429,6 +478,7 @@ class Model():
                                                 self.model,)
                     # Link the component object to its hub(s)
                     self.hubs, self.model = component.link(self.hubs, self.model)
+                    # self.hubs = component.link(self.hubs, log=False)
                     # Save the component
                     self.components[class_].update({component_name: component})
 
@@ -469,7 +519,8 @@ class Model():
                     self.hubs = co.connect_as_input(self.hubs, conditions[i])
                     self.vars.append(co)
                 else:
-                    print('ERROR: NOTHING ELSE THAN CONDITIONS_TYPE==INPUT IS VALID')
+                    print('ERROR: conditions_type=' + conditions_type[i] +
+                          ' BUT NOTHING ELSE THAN conditions_type="input" IS VALID')
         
         # # Connect house and car with input conditions
         # co_house_car = EnvironmentsConnection('house', 'car')
@@ -521,7 +572,6 @@ class Model():
         # conversion_components = get_components(self.elements_list, 'Conversion').keys()
         conversion_components = self.components['Conversion'].keys()
         for component in conversion_components:
-            print(component)
             for output_energy in self.components['Conversion'][component].output_energies.keys():
                 self.dispatch.insert(loc=0,
                                     column=component + '_' + output_energy,

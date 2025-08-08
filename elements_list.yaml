@@ -7,8 +7,12 @@ Production:
     minimum_type: 'constant'
     minimum: 0
     maximum_type: 'hourly'
-    maximum: 'data_sample.csv//PV (Wh)'
-    installed_capacity: 1000 # Wc
+    maximum: 'data_sample.csv//PV (Wh)' # sample of PV production chronicle for 1 kWc installed
+    # Total production minimum = minimum * factor
+    # Total production maximum = maximum * factor
+    factor: 'auto' # if set to 'auto', will be optimized between 0. and 5.
+    # Cost of technology = unit_cost * factor
+    unit_cost: 1.
 
   grid:
     activate: True
@@ -84,6 +88,10 @@ Storage:
     efficiency: 0.95
     initial_SOC: 0.5 # SOC of 50% at t0
     calendar_aging: 0.999
+    # Total storage capacity = capacity * factor
+    factor: 'auto' # If set to 'auto', will be optimized between values 0. and 5.
+    # Technology cost = unit_cost * factor
+    unit_cost: 3.
   
   car_battery:
     activate: True
@@ -93,6 +101,8 @@ Storage:
     efficiency: 0.95
     initial_SOC: 0.5 # SOC of 50% at t0
     calendar_aging: 0.999
+    factor: 'auto'
+    unit_cost: 3.
 
   trailer_battery:
     activate: True
@@ -102,6 +112,8 @@ Storage:
     efficiency: 0.95
     initial_SOC: 0.5 # SOC of 50% at t0
     calendar_aging: 0.999
+    factor: 'auto'
+    unit_cost: 3.
 
   house_temperature:
     activate: True
