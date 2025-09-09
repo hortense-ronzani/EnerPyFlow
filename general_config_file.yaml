@@ -1,31 +1,31 @@
 ---
-run_num: 4
-run_name: 'PV_dim'
-time: 'data_sample.csv//time'
+run_num: 11
+run_name: 'usine'
+time: 'usine.csv//time'
 optimization_variable: 'cost'
 optimization_sense: 'minimize'
 
 # Environments connection conditions
 environments_connections:
-  house:
-    envs:
-      - 'car'
-    conditions_type:
-      - 'input'
-    conditions:
-      - 'data_sample.csv//house_car_connection'
-    reverse:
-      - False
-  trailer:
-    envs:
-      - 'car'
-      - 'house'
-    conditions_type:
-      - 'input'
-      - 'input'
-    conditions:
-      - 'data_sample.csv//trailer_car_connection'
-      - 'data_sample.csv//trailer_car_connection'
-    reverse:
-      - False
-      - True
+#   house:
+#     envs:
+#       - 'car'
+#     conditions_type:
+#       - 'input'
+#     conditions:
+#       - 'data_sample.csv//house_car_connection'
+#     reverse:
+#       - False
+#   module:
+#     envs:
+#       - 'car'
+#       - 'house'
+#     conditions_type:
+#       - 'input'
+#       - 'input'
+#     conditions:
+#       - 'data_sample.csv//trailer_car_connection_2'
+#       - 'data_sample.csv//trailer_car_connection_2'
+#     reverse:
+#       - False
+#       - True
