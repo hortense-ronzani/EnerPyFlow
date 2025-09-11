@@ -1,138 +1,80 @@
 ---
-Production:
-  smr:
-    activate: True
-    energy: 'heat_high'
-    environment: 'usine'  
-    minimum_type: 'constant'
-    minimum: 0
-    maximum_type: 'constant'
-    maximum: 300 # MWh
-    cost_type: 'constant'
-    cost: 80 # €/MWh high temperature
-    factor: 1.
-
+Source:
   PV:
     activate: True
     energy: 'electricity'
-    environment: 'usine'
-    minimum_type: 'constant'
-    minimum: 0
-    maximum_type: 'hourly'
-    maximum: 'usine.csv//PV (MWhe)'
-
-  heat_grid:
-    activate: True
-    energy: 'heat_low'
-    environment : 'usine'
-    minimum_type: 'constant'
-    minimum: -100 # MWh
-    maximum_type: 'constant'
-    maximum: 100 # MWh
-    cost_type: 'constant'
-    cost: 10 # €/MWh low temperature
-
-  PV2:
-    activate: False
-    energy: 'electricity'
     environment: 'house'
-    minimum_type: 'constant'
-    minimum: 0
-    maximum_type: 'hourly'
-    maximum: 'data_sample.csv//PV (Wh)' # sample of PV production chronicle for 1 kWc installed
+    maximum_in_type: 'constant'
+    maximum_in: 0
+    minimum_out_type: 'hourly'
+    minimum_out: 'data_sample.csv//PV (Wh)'
+    maximum_out_type: 'hourly'
+    maximum_out: 'data_sample.csv//PV (Wh)' # sample of PV production chronicle for 1 kWc installed
     # Total production minimum = minimum * factor
     # Total production maximum = maximum * factor
-    factor: 3. # if set to 'auto', will be optimized between 0. and 5.
+    factor: 'auto' # if set to 'auto', will be optimized between 0. and 5.
     factor_low_bound: 0.
     factor_up_bound: 5.
+    factor_type: 'Continuous' # Can be: 'Binary', 'Integer' or 'Continuous'
     # Cost of technology = installation_cost * factor
-    installation_cost: 0. # €/kWc
+    installation_cost: 2.40 # €/kWc
 
   grid:
-    activate: False
+    activate: True
     energy: 'electricity'
     environment: 'house'
-    minimum_type: 'constant'
-    minimum: 0 # W (~kVA)
-    maximum_type: 'constant'
-    maximum: 9000 # W (~kVA)
-    cost_type: 'constant'
-    cost : 0.0001952 # 195,2 €/MWh tarif base EDF
-    # cost: 'data_sample.csv//Electricity_price (euros/Wh)'
+    maximum_in_type: 'constant'
+    maximum_in: 9000 # W (~kVA)
+    maximum_out_type: 'constant'
+    maximum_out: 9000 # W (~kVA)
+    cost_out_type: 'hourly'
+    # cost_out: 0.0001952 # 195,2 €/MWh tarif base EDF
+    cost_out: 'data_sample.csv//Electricity_price (euros/Wh)'
+    cost_in_type: 'hourly'
+    cost_in: 'data_sample.csv//Electricity_price_negative (euros/Wh)'
+    # cost_in: -0.000040 # 40€/MWh tarif rachat particuliers EDF
 
   external_charging_station:
-    activate: False
+    activate: True
     energy: 'electricity'
     environment: 'car'
-    minimum_type: 'constant'
-    minimum: 0
-    cost_type: 'constant'
-    cost: 0.000200 # €/Wh 200 €/MWh
+    maximum_in_type: 'constant'
+    maximum_in: 0
+    maximum_out_type: 'constant'
+    maximum_out: 100000 # W (~kVA)
+    cost_out_type: 'constant'
+    cost_out: 0.000200 # €/Wh 200 €/MWh
   
   gas_station:
     activate: False
     energy: 'oil'
     environment: 'car'
-    minimum_type: 'constant'
-    minimum: 0
-    cost_type: 'constant'
-    cost: 1.7 # €/L
+    minimum_in_type: 'constant'
+    minimum_in: 0
+    cost_out_type: 'constant'
+    cost_out: 1.7 # €/L
 
 # Consumptions are inputs; energy levels required are not variable
-Consumption:
-  demand_high_temp_fix:
-    activate: True
-    energy: 'heat_high'
-    environment: 'usine'
-    value_type: 'hourly'
-    value: 'usine.csv//demand_high_temp (MWh)'
-    factor: 0.95
-    dispatchable: False
-
-  demand_high_temp_dispatchable:
-    activate: True
-    energy: 'heat_high'
-    environment: 'usine'
-    value_type: 'hourly'
-    value: 'usine.csv//demand_high_temp (MWh)'
-    factor: 0.05
-    dispatchable: True
-    dispatch_window: 6 # h = [-2h, +2h]
-    maximum_hourly_dispatch: 4. # MWh
-
-  demand_elec:
-    activate: True
-    energy: 'electricity'
-    environment: 'usine'
-    value_type: 'constant'
-    value: 45. # MWhe
-
-  demand_low_temp:
-    activate: True
-    energy: 'heat_low'
-    environment: 'usine'
-    value_type: 'constant'
-    value: 10. # MWh
-
+Demand:
   house_fixed_electricity_consumption:
-    activate: False
+    activate: True
     energy: 'electricity'
     environment: 'house'
     value_type: 'hourly'
     value: 'data_sample.csv//conso (Wh)'
-    factor: 0.8
+    factor: 0.5
     dispatchable: False
 
   house_daily_dispatchable_electricity_consumption:
-    activate: False
+    activate: True
     energy: 'electricity'
     environment: 'house'
     value_type: 'hourly'
     value: 'data_sample.csv//conso (Wh)'
-    factor: 0.2
+    factor: 0.5
     dispatchable: True
     dispatch_window: 12 # h (-12h, +12h)
-    maximum_hourly_dispatch: 250. # Wh
+    maximum_hourly_dispatch: 500. # Wh
 
   house_weekly_dispatchable_electricity_consumption:
     activate: False
@@ -146,7 +88,7 @@ Consumption:
     maximum_hourly_dispatch: 250. # Wh
 
   car_use:
-    activate: False
+    activate: True
     energy: 'distance'
     environment: 'car'
     value_type: 'hourly'
@@ -157,52 +99,58 @@ Consumption:
     energy: 'heat'
     environment: 'house'
     value_type: 'constant'
-    value: 250. # Wh thermiques
+    value: 150. # Wh thermiques
 
 Storage:
-  batterie_usine:
+  home_battery:
     activate: True
     energy: 'electricity'
-    environment: 'usine'
-    capacity: 100 # MWhe
-    initial_SOC: 0.5
-    factor: 1.
-    efficiency: 1.
-
-  home_battery:
-    activate: False
-    energy: 'electricity'
     environment: 'house'
+    capacity: 1000 # Wh
+    efficiency: 0.95
+    initial_SOC: 0.1 # SOC of 50% at t0
+    calendar_aging: 1.
+    cost_in_type: 'constant'
+    cost_in: 0. # €/Wh # Coût du cyclage, pénalise le fait d'utiliser la batterie
+    cost_out_type: 'constant'
+    cost_out: 0. # 0.1 €/Wh 
+    factor: 1. # If set to 'auto', will be optimized between values 0. and 5.
+    factor_low_bound: 0.
+    factor_up_bound: 5.
+    # Technology cost = unit_cost * factor
+    factor_type: 'Continuous'
+    volume_factor: 'auto'
+    volume_factor_low_bound: 0.
+    volume_factor_up_bound: 10.
+    volume_factor_type: 'Continuous'
+    volume_installation_cost: 0.96 # €/kWh
+  
+  car_battery:
+    activate: True
+    energy: 'electricity'
+    environment: 'car'
+    capacity: 1000 # Wh
+    efficiency: 0.95
+    initial_SOC: 0.1 # SOC of 50% at t0
+    calendar_aging: 0.999
+    factor: 1.
+    installation_cost: 0. #3.
+    volume_factor: 'auto'
+    volume_factor_low_bound: 0. # kWh
+    volume_factor_up_bound: 80. # kWh
+    volume_factor_type: 'Continuous'
+    volume_installation_cost: 1.28 # €/kWh
+
+  trailer_battery:
+    activate: True
+    energy: 'electricity'
+    environment: 'module'
     capacity: 5000 # Wh
     efficiency: 0.95
     initial_SOC: 0.5 # SOC of 50% at t0
     calendar_aging: 0.999
-    # Total storage capacity = capacity * factor
-    factor: 'auto' # If set to 'auto', will be optimized between values 0. and 5.
-    # Technology cost = unit_cost * factor
-    unit_cost: 3.
-  
-  car_battery:
-    activate: False
-    energy: 'electricity'
-    environment: 'car'
-    capacity: 15000 # Wh
-    efficiency: 0.95
-    initial_SOC: 0.5 # SOC of 50% at t0
-    calendar_aging: 0.999
     factor: 1.
-    unit_cost: 0. #3.
-
-  trailer_battery:
-    activate: False
-    energy: 'electricity'
-    environment: 'module'
-    capacity: 15000 # Wh
-    efficiency: 0.95
-    initial_SOC: 0.5 # SOC of 50% at t0
-    calendar_aging: 0.999
-    factor: 1.
-    unit_cost: 0. #3.
+    volume_installation_cost: 1.28 # €/kWh
 
   house_temperature:
     activate: False
@@ -213,19 +161,13 @@ Storage:
     initial_SOC: 0.5
     calendar_aging: 1.
 
-Conversion:
-  turbine:
-    activate: True
-    environment: usine
-    input_energy: 'heat_high' # MWh thermique high temperature
-    output_energies:
-      electricity: 0.4 # MWhélec /  MWhth HT
-      heat_low: 0.6 # MWth LT / MWth HT
-
+Convertor:
   electric_engine:
-    activate: False
+    activate: True
     environment: 'car'
     input_energy: 'electricity'
+    maximum_in_type: 'constant'
+    maximum_in: 100000 # Wh e
     output_energies:
       distance: 0.007 # = 1./150 1/(Wh/km)
       # heat: 0.1 # (10% of heat losses)
@@ -242,6 +184,8 @@ Conversion:
     activate: False
     environment: 'house'
     input_energy: 'electricity'
+    maximum_in_type: 'constant'
+    maximum_in: 500 # Whth
     output_energies:
       heat: 1.
 

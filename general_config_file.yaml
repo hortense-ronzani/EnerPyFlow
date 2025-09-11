@@ -1,31 +1,61 @@
 ---
-run_num: 11
-run_name: 'usine'
-time: 'usine.csv//time'
+run_num: 0
+run_name: 'crash_test'
+time: 'data_sample.csv//time'
 optimization_variable: 'cost'
 optimization_sense: 'minimize'
 
 # Environments connection conditions
 environments_connections:
-#   house:
-#     envs:
-#       - 'car'
-#     conditions_type:
-#       - 'input'
-#     conditions:
-#       - 'data_sample.csv//house_car_connection'
-#     reverse:
-#       - False
-#   module:
-#     envs:
-#       - 'car'
-#       - 'house'
-#     conditions_type:
-#       - 'input'
-#       - 'input'
-#     conditions:
-#       - 'data_sample.csv//trailer_car_connection_2'
-#       - 'data_sample.csv//trailer_car_connection_2'
-#     reverse:
-#       - False
-#       - True
+  house:
+    envs:
+      - 'car'
+    maximum_out_type:
+      - 'hourly'
+    maximum_out:
+      - 'data_sample.csv//house_car_connection'
+    maximum_in_type:
+      - 'hourly'
+    maximum_in:
+      - 'data_sample.csv//house_car_connection'
+    cost_out_type:
+      - 'constant'
+    cost_out:
+      - 1.
+    cost_in_type:
+      - 'constant'
+    cost_in:
+      - 1.
+    reverse:
+      - False
+  module:
+    envs:
+      - 'car'
+      - 'house'
+    maximum_out_type:
+      - 'hourly'
+      - 'hourly'
+    maximum_out:
+      - 'data_sample.csv//module_car_connection'
+      - 'data_sample.csv//module_house_connection'
+    cost_out_type:
+      - 'constant'
+      - 'constant'
+    cost_out:
+      - 1.
+      - 1.
+    cost_in_type:
+      - 'constant'
+      - 'constant'
+    cost_in:
+      - 1.
+      - 1.
+    maximum_in_type:
+      - 'hourly'
+      - 'hourly'
+    maximum_in:
+      - 'data_sample.csv//house_car_connection'
+      - 'data_sample.csv//module_house_connection'
+    reverse:
+      - False
+      - True
