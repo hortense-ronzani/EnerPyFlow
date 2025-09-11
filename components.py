@@ -1015,7 +1015,6 @@ def plot_vars_car_connected_version(dispatch, data, top_var, variables, ax, titl
                                     unit=None, start=0, end=0):
 
     dispatch = dispatch[start:len(dispatch)-end]
-    env1_env2 = env1_env2[start:len(env1_env2)-end]
 
     variables = [var for var in variables if var in dispatch.columns]
 
@@ -1026,6 +1025,7 @@ def plot_vars_car_connected_version(dispatch, data, top_var, variables, ax, titl
     
     # Indicate when car is connected
     if co:
+        env1_env2 = env1_env2[start:len(env1_env2)-end]
         ax.fill_between(x=dispatch['time'], y1=env1_env2*max_value/max(env1_env2),
                         step="mid", alpha=0.2, color='#219EBC', hatch='/', edgecolor='w',
                         label='Connection between ' + env1 + ' and ' + env2)
