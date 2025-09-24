@@ -3,6 +3,26 @@ Source:
   PV:
     activate: True
     energy: 'electricity'
+    environment: 'usine'
+    minimum_type: 'constant'
+    minimum: 0
+    maximum_type: 'hourly'
+    maximum: 'usine.csv//PV (MWhe)'
+
+  heat_grid:
+    activate: True
+    energy: 'heat_low'
+    environment : 'usine'
+    minimum_type: 'constant'
+    minimum: -100 # MWh
+    maximum_type: 'constant'
+    maximum: 100 # MWh
+    cost_type: 'constant'
+    cost: 10 # €/MWh low temperature
+
+  PV2:
+    activate: False
+    energy: 'electricity'
     environment: 'house'
     maximum_in: 0
     minimum_out: 'data_sample.csv//PV (Wh)'
@@ -16,8 +36,9 @@ Source:
     # Cost of technology = installation_cost * factor
     installation_cost: 2.40 # €/kWc
 
+
   grid:
-    activate: True
+    activate: False
     energy: 'electricity'
     environment: 'house'
     maximum: 9000
@@ -25,10 +46,11 @@ Source:
     # maximum_out: 9000 # W (~kVA)
     cost_out: 0.0001952 # 195,2 €/MWh tarif base EDF
     cost_in: -0.000040 # 40€/MWh tarif rachat particuliers EDF
+
     # cost: 'data_sample.csv//Electricity_price (euros/Wh)'
 
   external_charging_station:
-    activate: True
+    activate: False
     energy: 'electricity'
     environment: 'car'
     maximum_in: 0
@@ -46,6 +68,20 @@ Source:
 Demand:
   house_fixed_electricity_consumption:
     activate: True
+    energy: 'electricity'
+    environment: 'usine'
+    value_type: 'constant'
+    value: 45. # MWhe
+
+  demand_low_temp:
+    activate: True
+    energy: 'heat_low'
+    environment: 'usine'
+    value_type: 'constant'
+    value: 10. # MWh
+
+  house_fixed_electricity_consumption:
+    activate: False
     energy: 'electricity'
     environment: 'house'
     value: 'data_sample.csv//conso (Wh)'
@@ -74,7 +110,7 @@ Demand:
     maximum_hourly_dispatch: 250. # Wh
 
   car_use:
-    activate: True
+    activate: False
     energy: 'distance'
     environment: 'car'
     value: 'data_sample.csv//Distances_traveled (km)'
@@ -86,8 +122,17 @@ Demand:
     value: 150. # Wh thermiques
 
 Storage:
-  home_battery:
+  batterie_usine:
     activate: True
+    energy: 'electricity'
+    environment: 'usine'
+    capacity: 100 # MWhe
+    initial_SOC: 0.5
+    factor: 1.
+    efficiency: 1.
+
+  home_battery:
+    activate: False
     energy: 'electricity'
     environment: 'house'
     capacity: 1000 # Wh
@@ -109,7 +154,7 @@ Storage:
     volume_installation_cost: 0.96 # €/kWh
   
   car_battery:
-    activate: True
+    activate: False
     energy: 'electricity'
     environment: 'car'
     capacity: 1000 # Wh
@@ -126,7 +171,7 @@ Storage:
     volume_installation_cost: 1.28 # €/kWh
 
   trailer_battery:
-    activate: True
+    activate: False
     energy: 'electricity'
     environment: 'module'
     capacity: 1000 # Wh
@@ -152,6 +197,14 @@ Storage:
 Convertor:
   electric_engine:
     activate: True
+    environment: usine
+    input_energy: 'heat_high' # MWh thermique high temperature
+    output_energies:
+      electricity: 0.4 # MWhélec /  MWhth HT
+      heat_low: 0.6 # MWth LT / MWth HT
+
+  electric_engine:
+    activate: False
     environment: 'car'
     input_energy: 'electricity'
     # maximum_in: 100000 # Wh e
