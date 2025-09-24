@@ -10,52 +10,22 @@ environments_connections:
   house:
     envs:
       - 'car'
-    maximum_out_type:
-      - 'hourly'
-    maximum_out:
+    maximum:
       - 'data_sample.csv//house_car_connection'
-    maximum_in_type:
-      - 'hourly'
-    maximum_in:
-      - 'data_sample.csv//house_car_connection'
-    cost_out_type:
-      - 'constant'
     cost_out:
-      - 1.
-    cost_in_type:
-      - 'constant'
+      - 0.
     cost_in:
-      - 1.
-    reverse:
-      - False
+      - 0.
   module:
     envs:
       - 'car'
       - 'house'
-    maximum_out_type:
-      - 'hourly'
-      - 'hourly'
-    maximum_out:
+    maximum:
       - 'data_sample.csv//module_car_connection'
       - 'data_sample.csv//module_house_connection'
-    cost_out_type:
-      - 'constant'
-      - 'constant'
     cost_out:
-      - 1.
-      - 1.
-    cost_in_type:
-      - 'constant'
-      - 'constant'
+      - 0.
+      - 0.
     cost_in:
-      - 1.
-      - 1.
-    maximum_in_type:
-      - 'hourly'
-      - 'hourly'
-    maximum_in:
-      - 'data_sample.csv//house_car_connection'
-      - 'data_sample.csv//module_house_connection'
-    reverse:
-      - False
-      - True
+      - 0.
+      - 0.

@@ -21,7 +21,8 @@ import numpy as np
 
 import matplotlib.pyplot as plt
 
-M = 50000
+# M = 50000
+# colors that will be used for the plots
 COLORS = ['#BFA85B',
  '#6C3E80',
  '#219EBC',
@@ -41,88 +42,64 @@ COLORS = ['#BFA85B',
  '#FFFFFF',
 ]
 
+# default values part 1 = that can be given directly
+default_values_Component_phase1 = {'minimum': 0.,
+                                    'maximum': 1000000.,
+                                    'cost': 0.,
+                                    'factor': 1.,
+                                    'factor_type': 'Continuous',
+                                    'factor_low_bound': 1.,
+                                    'factor_up_bound': 1.,
+                                    'installation_cost': 0.,
+}
+
+# default values that depend on the actual values given in phase 1
+def get_default_values_Component_phase2(o):
+    default_values_Component_phase2 = {'minimum_in': getattr(o, 'minimum'),
+                                    'minimum_out': getattr(o, 'minimum'),
+                                    'maximum_in': getattr(o, 'maximum'),
+                                    'maximum_out': getattr(o, 'maximum'),
+                                    'cost_in': -getattr(o, 'cost'),
+                                    'cost_out': getattr(o, 'cost'),
+                                    }
+    return default_values_Component_phase2
+
+
 class Component:
-    def __init__(self, name, energy, environment, description, model=None, nb_of_timesteps=None, isHub=False, log=False):
+    def __init__(self, name, energy, environment, description, nb_of_timesteps=None, isHub=False, i=None, log=False):
         self.energy = energy
         self.environment = environment
-        self.model = model
+        # self.model = model
         self.nb_of_timesteps = nb_of_timesteps
         self.name = name
 
+        # For every Component except Hubs
         if not isHub:
-            # Get bounds of Component -> Hub variables
-            try:
-                self.minimum_out_type = description['minimum_out_type']
-                self.minimum_out = utils.get_chronicle('minimum_out', description)
-            except KeyError:
-                self.minimum_out_type = 'constant'
-                self.minimum_out = 0.
+            # Get attributes that are common to all components phase 1
+            for attribute in default_values_Component_phase1.keys():
+                try:
+                    # Read value from the configuration file
+                    self.__setattr__(attribute, utils.get_chronicle2(description[attribute], log=log, i=i))
+                except KeyError:
+                    # If no value given in the configuration, set default value
+                    self.__setattr__(attribute, default_values_Component_phase1[attribute])
+            
 
-            try:
-                self.maximum_out_type = description['maximum_out_type']
-                self.maximum_out = utils.get_chronicle('maximum_out', description)
-            except KeyError:
-                self.maximum_out_type = 'constant'
-                self.maximum_out = float('inf')
+            # Get attributes that are common to all components phase 2
+            default_values_Component_phase2 = get_default_values_Component_phase2(self)
+            for attribute in default_values_Component_phase2.keys():
+                try:
+                    # Read value from the configuration file
+                    self.__setattr__(attribute, utils.get_chronicle2(description[attribute], log=log, i=i))
+                except KeyError: # if attribute not found in the configuration file
+                    # If no value given in the configuration, set default value
+                    self.__setattr__(attribute, default_values_Component_phase2[attribute])
 
-            # Get bounds of Hub -> Component variables
-            try:
-                self.minimum_in_type = description['minimum_in_type']
-                self.minimum_in = utils.get_chronicle('minimum_in', description)
-            except KeyError:
-                self.minimum_in_type = 'constant'
-                self.minimum_in = 0.
-
-            try:
-                self.maximum_in_type = description['maximum_in_type']
-                self.maximum_in = utils.get_chronicle('maximum_in', description)
-            except KeyError:
-                self.maximum_in_type = 'constant'
-                self.maximum_in = float('inf')
-
-            # Get factor specifications
-            try:
-                self.factor = description['factor']
-            except KeyError:
-                self.factor = 1.
-            try:
-                self.factor_type = description['factor_type']
-            except KeyError:
-                self.factor_type = 'Continuous'
-            try:
-                self.factor_low_bound = description['factor_low_bound']
-            except KeyError:
-                self.factor_low_bound = 1.
-            try:
-                self.factor_up_bound = description['factor_up_bound']
-            except KeyError:
-                self.factor_up_bound = 1.
             if self.factor == 'auto':
                 self.factor = pl.LpVariable(self.name + '_factor',
                                             lowBound=self.factor_low_bound,
                                             upBound=self.factor_up_bound,
                                             cat=self.factor_type)
-                
-            # Cost specifications
-            # Cost of Hub -> Component
-            try:
-                self.cost_in_type = description['cost_in_type']
-                self.cost_in = utils.get_chronicle('cost_in', description)
-            except KeyError:
-                self.cost_in_type = 'constant'
-                self.cost_in = 0.
-            # Cost of Component -> Hub
-            try:
-                self.cost_out_type = description['cost_out_type']
-                self.cost_out = utils.get_chronicle('cost_out', description)
-            except KeyError:
-                self.cost_out_type = 'constant'
-                self.cost_out = 0.
-            # Installation cost per unit of factor
-            try:
-                self.installation_cost = description['installation_cost']
-            except KeyError:
-                self.installation_cost = 0.
         
     def get_hub(self, hubs, environment=None, energy=None, log=False):
         if environment is None:
@@ -135,31 +112,31 @@ class Component:
             if log:
                 print('hub_' + environment + '_' + energy + ' already exists')
         else:
-            hub = Hub(environment, energy, model=self.model, nb_of_timesteps=self.nb_of_timesteps)
+            hub = Hub(environment, energy, nb_of_timesteps=self.nb_of_timesteps)
             hubs.loc[environment, energy] = hub
             if log:
                 print('hub_' + environment + '_' + energy + ' created')
 
         return hub
     
-    def link(self, hubs, model, log=False):    
+    def link(self, hubs, model, log=False):  
         self.flow_vars_in = [pl.LpVariable('hub_to_' + self.name + '_' + str(t)) for t in range(self.nb_of_timesteps)]
         self.flow_vars_out = [pl.LpVariable(self.name + '_to_hub_' + str(t)) for t in range(self.nb_of_timesteps)]
 
         # Add bounds to flow variables
         for t in range(self.nb_of_timesteps):
-            model += self.flow_vars_out[t] <= self.factor*bound(self.maximum_out, self.maximum_out_type, t)
-            model += self.flow_vars_out[t] >= self.factor*bound(self.minimum_out, self.minimum_out_type, t)
-            model += self.flow_vars_in[t] <= self.factor*bound(self.maximum_in, self.maximum_in_type, t)
-            model += self.flow_vars_in[t] >= self.factor*bound(self.minimum_in, self.minimum_in_type, t)
+            model += self.flow_vars_out[t] <= self.factor*bound(self.maximum_out, t)
+            model += self.flow_vars_out[t] >= self.factor*bound(self.minimum_out, t)
+            model += self.flow_vars_in[t] <= self.factor*bound(self.maximum_in, t)
+            model += self.flow_vars_in[t] >= self.factor*bound(self.minimum_in, t)
 
         # Add installation cost to the model objective function
         model.objective += self.factor*self.installation_cost
 
         # Add flow cost to the model objective function
         if model.name == 'cost':
-            model.objective += pl.lpSum([self.flow_vars_out[t]*bound(self.cost_out, self.cost_out_type, t)
-                                         + self.flow_vars_in[t]*bound(self.cost_in, self.cost_in_type, t) for t in range(self.nb_of_timesteps)])
+            model.objective += pl.lpSum([self.flow_vars_out[t]*bound(self.cost_out, t)
+                                         + self.flow_vars_in[t]*bound(self.cost_in, t) for t in range(self.nb_of_timesteps)])
 
         if log:
             print('Flow vars added to model')
@@ -175,9 +152,9 @@ class Component:
         return hubs, model
     
 class Hub(Component):
-    def __init__(self, environment, energy, model, nb_of_timesteps, log=False):
+    def __init__(self, environment, energy, nb_of_timesteps, log=False):
         name = 'hub_' + energy + '_' + environment
-        super().__init__(name, energy, environment, description=None, model=model, nb_of_timesteps=nb_of_timesteps, isHub=True, log=log,)
+        super().__init__(name, energy, environment, description=None, nb_of_timesteps=nb_of_timesteps, isHub=True, log=log,)
 
         self.unused_energy = [pl.LpVariable('unused_energy_' + self.name + '_' + str(t), lowBound=0) for t in range(self.nb_of_timesteps)]
         self.equation = [pl.LpConstraint(e=-self.unused_energy[t],
@@ -194,8 +171,8 @@ class Hub(Component):
         self.component_names.append(component_name)
    
 class Convertor(Component):
-    def __init__(self, name, description, model, nb_of_timesteps, log=False):
-        super().__init__(name, description['input_energy'], description['environment'], description, model, nb_of_timesteps, log=log,)
+    def __init__(self, name, description, nb_of_timesteps, log=False):
+        super().__init__(name, description['input_energy'], description['environment'], description, nb_of_timesteps, log=log,)
 
         self.name = name
 
@@ -209,29 +186,11 @@ class Convertor(Component):
             print(name + ' created.')
 
     def build_equations(self, hubs, model=None, log=False):
-        # self.model = model
-
-        # input_hub = self.get_hub(hubs, log=log)
-        
-        # # Energy can only flow from the input hub to the output hubs
-        # self.flow_vars_in = [pl.LpVariable(self.name
-        #                                 + '_to_hub_' + self.input_energy
-        #                                 + '_' + str(t),
-        #                                 upBound=0) for t in range(self.nb_of_timesteps)]
-        
-        # # Add the flow linking convertor to its input hub to the hub equation
-        # input_hub.add_link(self.flow_vars, self.name)
-
         # Create link from input energy hub
         hubs, model = self.link(hubs, model, log=log)
 
+        # Initialize a dictionnary to store Convertor equations
         self.equations = {}
-
-        # Add input energy flow to the conversion equation
-        # self.equation = [pl.LpConstraint(e=self.flow_vars[t],
-        #                                  sense=pl.LpConstraintEQ,
-        #                                  name='equation_' + self.name + '_' + str(t),
-        #                                  rhs=0) for t in range(self.nb_of_timesteps)]
 
         # Crush flow_vars_out previously linked to input hub (which is 0 anyway)
         # and link the new ones to output_hubs
@@ -251,14 +210,12 @@ class Convertor(Component):
             self.flow_vars_out.update({output_energy: flow_vars_out})
 
             # Conversion ratio between input energy flow and output energy flow
-            # ratio = 1./self.output_energies[output_energy]
             ratio = self.output_energies[output_energy]
             # Add output energy flow to the conversion equation
             self.equations[output_energy] = [pl.LpConstraint(e=self.flow_vars_out[output_energy][t]-ratio*self.flow_vars_in[t],
                                                              sense=pl.LpConstraintEQ,
                                                              name='equation_' + self.name + '_' + output_energy + '_' + str(t),
                                                              rhs=0) for t in range(self.nb_of_timesteps)]
-            # self.equation = [self.equation[t] + ratio*flow_vars[t] for t in range(self.nb_of_timesteps)]
 
             if model is not None:
                 for t in range(self.nb_of_timesteps):
@@ -270,17 +227,19 @@ class Convertor(Component):
         return hubs, model
 
 class Storage(Component):
-    def __init__(self, name, description, model, nb_of_timesteps, log=False):
-        super().__init__(name, description['energy'], description['environment'], description, model, nb_of_timesteps, log=log)
+    def __init__(self, name, description, nb_of_timesteps, log=False):
+        super().__init__(name, description['energy'], description['environment'], description, nb_of_timesteps, log=log)
 
         # Storage-specific parameters
         self.capacity = description['capacity']
         self.initial_SOC = description['initial_SOC']
+        self.final_SOC = description['final_SOC']
 
         # infinite maximum flow values would cause the solver to crash
-        self.maximum_in = min(self.maximum_in, self.capacity*10000)
-        self.maximum_out = min(self.maximum_out, self.capacity*10000)
+        # self.maximum_in = min(self.maximum_in, self.capacity*10000)
+        # self.maximum_out = min(self.maximum_out, self.capacity*10000)
 
+        # Get Storage-specific parameters
         try:
             self.efficiency = description['efficiency']
         except:
@@ -322,8 +281,7 @@ class Storage(Component):
             print(name + ' created.')
 
     def build_equations(self, hubs, model, log=False):
-        # self.model = model
-
+        # Link to Hub
         hubs, model = self.link(hubs, model)
 
         # Create variables to contain the state of charge of the storage
@@ -335,23 +293,18 @@ class Storage(Component):
 
         model.objective += self.volume_factor * self.volume_installation_cost
 
-        # # Get hub associated to storage
-        # hub = self.get_hub(hubs, log=log)
-        
-        # # Energy flow from storage to hub
-        # self.flow_vars = [pl.LpVariable(self.name + '_to_hub_' + str(t)) for t in range(self.nb_of_timesteps)]
-
-        # # TODO: faire ça mieux
-        # model.objective += pl.lpSum(self.flow_vars)*0.00000001
-        
-        # # Add storage to its hub equation
-        # hub.add_link(self.flow_vars, self.name)
-
         # Initial condition
         self.equation = [pl.LpConstraint(e=self.SOC[0] - self.initial_SOC * self.capacity * self.volume_factor,
                                         sense=pl.LpConstraintEQ,
-                                        name='equation_' + self.name + '_0',
+                                        name='initial_condition_' + self.name + '_0',
                                         rhs=0),]
+        
+        # Final condition
+        self.equation = [pl.LpConstraint(e=self.SOC[self.nb_of_timesteps-1] - self.final_SOC * self.capacity * self.volume_factor,
+                                        sense=pl.LpConstraintEQ,
+                                        name='final_condition_' + self.name + '_' + str(self.nb_of_timesteps-1),
+                                        rhs=0),]
+
         # Storage equation    
         for t in range(1, self.nb_of_timesteps):
             self.equation.append(pl.LpConstraint(e=self.SOC[t]
@@ -361,6 +314,7 @@ class Storage(Component):
                                         sense=pl.LpConstraintEQ,
                                         name='equation_' + self.name + '_' + str(t),
                                         rhs=0))
+        
         # Add Storage equation to model    
         for t in range(self.nb_of_timesteps):
             model += self.equation[t]
@@ -368,42 +322,30 @@ class Storage(Component):
         return hubs, model
 
 class Demand(Component):
-    def __init__(self, name, description, model, nb_of_timesteps, log=False):
-        super().__init__(name, description['energy'], description['environment'], description, model, nb_of_timesteps, log=log)
+    def __init__(self, name, description, nb_of_timesteps, log=False):
+        super().__init__(name, description['energy'], description['environment'], description, nb_of_timesteps, log=log,)
                 
         try:
             self.dispatchable = description['dispatchable']
             self.dispatch_window = description['dispatch_window']
-            self.maximum_hourly_dispatch = description['maximum_hourly_dispatch']
             if log:
                 print(name + ' is dispatchable.')
         except KeyError:
             self.dispatchable = False
             self.dispatch_window = None
-            self.maximum_hourly_dispatch = None
             if log:
                 print(name + ' is not dispatchable.')
             
         # Bounds of Demand -> Hub
-        self.maximum_out_type = 'constant'
-        self.minimum_out_type = 'constant'
         self.maximum_out = 0.
         self.minimum_out = 0.
 
-        self.value_type = description['value_type']
-        self.value = utils.get_chronicle('value', description)
+        # self.value_type = description['value_type']
+        self.value = utils.get_chronicle2(description['value'], log=log)
         if not self.dispatchable:
             # Bounds of Hub -> Demand
-            self.maximum_in_type = self.value_type
-            self.minimum_in_type = self.value_type
             self.maximum_in = self.value
             self.minimum_in = self.value
-        elif self.dispatchable:
-            # Bounds of Hub -> Demand
-            self.maximum_in_type = 'constant'
-            self.minimum_in_type = 'constant'
-            self.maximum_in = self.maximum_hourly_dispatch/self.factor
-            self.minimum_in = 0.
 
         if log:
             print(name + ' created.')
@@ -414,9 +356,10 @@ class Demand(Component):
 
         if self.dispatchable:
             # Check
-            if np.mean(self.value*self.factor) >= self.maximum_hourly_dispatch:
+            # if np.mean(self.value*self.factor) >= self.maximum_hourly_dispatch:
+            if  np.mean(self.value*self.factor) >= self.maximum_in:
                 print('ERROR: MAXIMUM HOURLY DISPATCH ALLOWED FOR CONSUMPTION IS NOT SUFFICIENT, ' \
-                'MUST BE AT LEAST ' + str(round(np.mean(self.value*self.factor))+1))
+                'MUST BE AT LEAST ' + str(round(np.mean(self.value))+1))
 
             y_vars = {}
             # Dispatch every hourly consumption in the allowed time window
@@ -431,7 +374,7 @@ class Demand(Component):
                 y_t_initial[tmin:tmax] = [pl.LpVariable('y_' + self.name
                                                         + '_from_' + str(t_initial)
                                                         + '_to_' + str(t),
-                                                        lowBound=0.) for t in range(tmin, tmax)]
+                                                        lowBound=bound(self.minimum, t)) for t in range(tmin, tmax)]
 
 
                 # Add constraint Somme_t(y_vars[t0, t]) = input_consumption[t0]
@@ -447,61 +390,62 @@ class Demand(Component):
             #                                 lowBound=-self.maximum_hourly_dispatch) for t in range(self.nb_of_timesteps)]
             # Dispatched consumption is the sum of the dispatch of every hourly consumption
             for t in range(self.nb_of_timesteps):
-                self.model += pl.lpSum(self.y_vars.loc[t]) == self.flow_vars_in[t]
+                model += pl.lpSum(self.y_vars.loc[t]) == self.flow_vars_in[t]
 
 
-        return hubs, self.model
+        return hubs, model
 
 class Source(Component):
-    def __init__(self, name, description, model, nb_of_timesteps, log=False):
-        super().__init__(name, description['energy'], description['environment'], description, model, nb_of_timesteps, log=log,)
+    def __init__(self, name, description, nb_of_timesteps, log=False):
+        super().__init__(name, description['energy'], description['environment'], description, nb_of_timesteps, log=log,)
         
         if log:
             print(name + ' created.')
 
     def build_equations(self, hubs, model, log=False):
-        
         hubs, model = self.link(hubs=hubs, model=model, log=log)
-
+        if log:
+            print(self.name + ' linked to hubs, model updated.')
         return hubs, model
     
-class EnvironmentsConnection():
-    def __init__(self, environment1, environment2, descriptions, i, nb_of_timesteps):
+class EnvironmentsConnection(Component):
+    def __init__(self, environment1, environment2, descriptions, i, nb_of_timesteps, log=False):
         self.environment1 = environment1
         self.environment2 = environment2
         self.status = 'Not connected'
         self.nb_of_timesteps = nb_of_timesteps
+        name = self.environment1 + '_' + self.environment2
 
-        try:
-            self.maximum_out_type = descriptions['maximum_out_type'][i]
-            self.maximum_out = utils.get_chronicle('maximum_out', descriptions, i)
-        except KeyError:
-            self.maximum_out_type = 'constant'
-            self.maximum_out = 0.
+        super().__init__(name, '', environment1, description=descriptions, i=i, nb_of_timesteps=nb_of_timesteps, isHub=False, log=log,)
+
+        # try:
+        #     # self.maximum_out_type = descriptions['maximum_out_type'][i]
+        #     self.maximum_out = utils.get_chronicle('maximum_out', descriptions, i)
+        # except KeyError:
+        #     # self.maximum_out_type = 'constant'
+        #     self.maximum_out = 0.
         
-        try:
-            self.maximum_in_type = descriptions['maximum_in_type'][i]
-            self.maximum_in = utils.get_chronicle('maximum_in', descriptions, i)
-        except KeyError:
-            self.maximum_in_type = 'constant'
-            self.maximum_in = 0.
+        # try:
+        #     # self.maximum_in_type = descriptions['maximum_in_type'][i]
+        #     self.maximum_in = utils.get_chronicle('maximum_in', descriptions, i)
+        # except KeyError:
+        #     self.maximum_in_type = 'constant'
+        #     self.maximum_in = 0.
 
-        try:
-            self.cost_out_type = descriptions['cost_out_type'][i]
-            self.cost_out =utils.get_chronicle('cost_out', descriptions, i)
-        except KeyError:
-            self.cost_out_type = 'constant'
-            self.cost_out = 0.
+        # try:
+        #     self.cost_out_type = descriptions['cost_out_type'][i]
+        #     self.cost_out =utils.get_chronicle('cost_out', descriptions, i)
+        # except KeyError:
+        #     self.cost_out_type = 'constant'
+        #     self.cost_out = 0.
 
-        try:
-            self.cost_in_type = descriptions['cost_in_type'][i]
-            self.cost_in = utils.get_chronicle('cost_in', descriptions, i)
-        except KeyError:
-            self.cost_in_type = 'constant'
-            self.cost_in = 0.
+        # try:
+        #     self.cost_in_type = descriptions['cost_in_type'][i]
+        #     self.cost_in = utils.get_chronicle('cost_in', descriptions, i)
+        # except KeyError:
+        #     self.cost_in_type = 'constant'
+        #     self.cost_in = 0.
         
-        self.reverse = descriptions['reverse'][i]
-
     def connect_as_input(self, hubs, model):
             self.vars_out = {}
             self.vars_in = {}
@@ -520,8 +464,8 @@ class EnvironmentsConnection():
                     
                     # Set an upBound to flow between environment1 and environment2 (= 0. when disconnected)
                     for t in range(hub1.nb_of_timesteps):
-                        model += hub1_to_hub2[t] <= bound(self.maximum_out, self.maximum_out_type, t)
-                        model += hub2_to_hub1[t] <= bound(self.maximum_in, self.maximum_in_type, t)
+                        model += hub1_to_hub2[t] <= bound(self.maximum_out, t)
+                        model += hub2_to_hub1[t] <= bound(self.maximum_in, t)
 
                     # # Cut flow when environment1 and environment2 are disconnected
                     # for t in range(hub1.nb_of_timesteps):
@@ -542,8 +486,8 @@ class EnvironmentsConnection():
                     self.vars_out.update({energy: hub1_to_hub2})
                     self.vars_in.update({energy: hub2_to_hub1})
 
-                    model.objective += pl.lpSum([hub1_to_hub2[t]*bound(self.cost_out, self.cost_out_type, t)])
-                    model.objective += pl.lpSum([hub2_to_hub1[t]*bound(self.cost_in, self.cost_in_type, t)])
+                    model.objective += pl.lpSum([hub1_to_hub2[t]*bound(self.cost_out, t)])
+                    model.objective += pl.lpSum([hub2_to_hub1[t]*bound(self.cost_in, t)])
 
                     print(hub1.name + ' and ' + hub2.name + ' connected')
             self.status = 'Connected'
@@ -660,8 +604,7 @@ class Model():
                     # Create object (Source, Demand, Storage or Convertor) from the specs
                     component = classes[class_](component_name,
                                                 components_specs[component_name],
-                                                self.model,
-                                                self.nb_of_timesteps,
+                                                nb_of_timesteps=self.nb_of_timesteps,
                                                 log=log,)
                     # Link the component object to its hub(s)
                     self.hubs, self.model = component.build_equations(hubs=self.hubs, model=self.model, log=log)
@@ -698,7 +641,6 @@ class Model():
                 descriptions = environments_connections[environment1]
                 envs = descriptions['envs']
                 
-                reverse = environments_connections[environment1]['reverse']
                 for i, environment2 in enumerate(envs):
                     co = EnvironmentsConnection(environment1, environment2, descriptions, i, self.nb_of_timesteps)
                     self.hubs, self.model = co.connect_as_input(self.hubs, self.model)
@@ -926,12 +868,15 @@ class Model():
         return table
 
 
-
-def bound(value, value_type, t):
-    if value_type == 'constant' or value_type is None:
-        return value
-    else:
+def bound(value, t):
+    try:
         return value[t]
+    except TypeError:
+        return value
+    # if value_type == 'constant' or value_type is None:
+    #     return value
+    # else:
+    #     return value[t]
 
 def get_connection_timeslots(conditions):
     timeslots = pd.DataFrame(columns=['deconnection_time', 'connection_time'])

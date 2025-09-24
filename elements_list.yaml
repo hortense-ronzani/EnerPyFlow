@@ -4,17 +4,14 @@ Source:
     activate: True
     energy: 'electricity'
     environment: 'house'
-    maximum_in_type: 'constant'
     maximum_in: 0
-    minimum_out_type: 'hourly'
     minimum_out: 'data_sample.csv//PV (Wh)'
-    maximum_out_type: 'hourly'
     maximum_out: 'data_sample.csv//PV (Wh)' # sample of PV production chronicle for 1 kWc installed
     # Total production minimum = minimum * factor
     # Total production maximum = maximum * factor
     factor: 'auto' # if set to 'auto', will be optimized between 0. and 5.
     factor_low_bound: 0.
-    factor_up_bound: 5.
+    factor_up_bound: 10.
     factor_type: 'Continuous' # Can be: 'Binary', 'Integer' or 'Continuous'
     # Cost of technology = installation_cost * factor
     installation_cost: 2.40 # €/kWc
@@ -23,35 +20,26 @@ Source:
     activate: True
     energy: 'electricity'
     environment: 'house'
-    maximum_in_type: 'constant'
-    maximum_in: 9000 # W (~kVA)
-    maximum_out_type: 'constant'
-    maximum_out: 9000 # W (~kVA)
-    cost_out_type: 'hourly'
-    # cost_out: 0.0001952 # 195,2 €/MWh tarif base EDF
-    cost_out: 'data_sample.csv//Electricity_price (euros/Wh)'
-    cost_in_type: 'hourly'
-    cost_in: 'data_sample.csv//Electricity_price_negative (euros/Wh)'
-    # cost_in: -0.000040 # 40€/MWh tarif rachat particuliers EDF
+    maximum: 9000
+    # maximum_in: 9000 # W (~kVA)
+    # maximum_out: 9000 # W (~kVA)
+    cost_out: 0.0001952 # 195,2 €/MWh tarif base EDF
+    cost_in: -0.000040 # 40€/MWh tarif rachat particuliers EDF
+    # cost: 'data_sample.csv//Electricity_price (euros/Wh)'
 
   external_charging_station:
     activate: True
     energy: 'electricity'
     environment: 'car'
-    maximum_in_type: 'constant'
     maximum_in: 0
-    maximum_out_type: 'constant'
-    maximum_out: 100000 # W (~kVA)
-    cost_out_type: 'constant'
-    cost_out: 0.000200 # €/Wh 200 €/MWh
+    # maximum_out: 100000 # W (~kVA)
+    cost_out: 0.000500 # 0.000200 # €/Wh 200 €/MWh
   
   gas_station:
     activate: False
     energy: 'oil'
     environment: 'car'
-    minimum_in_type: 'constant'
     minimum_in: 0
-    cost_out_type: 'constant'
     cost_out: 1.7 # €/L
 
 # Consumptions are inputs; energy levels required are not variable
@@ -60,7 +48,6 @@ Demand:
     activate: True
     energy: 'electricity'
     environment: 'house'
-    value_type: 'hourly'
     value: 'data_sample.csv//conso (Wh)'
     factor: 0.5
     dispatchable: False
@@ -69,18 +56,17 @@ Demand:
     activate: True
     energy: 'electricity'
     environment: 'house'
-    value_type: 'hourly'
     value: 'data_sample.csv//conso (Wh)'
-    factor: 0.5
+    factor: 0.5 # factor can't be 'auto'
     dispatchable: True
     dispatch_window: 12 # h (-12h, +12h)
-    maximum_hourly_dispatch: 500. # Wh
+    # maximum_hourly_dispatch: 500. # Wh
+    maximum_in: 1000. # Wh true maximum will be maximum_in*factor
 
   house_weekly_dispatchable_electricity_consumption:
     activate: False
     energy: 'electricity'
     environment: 'house'
-    value_type: 'hourly'
     value: 'data_sample.csv//conso (Wh)'
     factor: 0.25
     dispatchable: True
@@ -91,14 +77,12 @@ Demand:
     activate: True
     energy: 'distance'
     environment: 'car'
-    value_type: 'hourly'
     value: 'data_sample.csv//Distances_traveled (km)'
 
   house_heating:
     activate: False
     energy: 'heat'
     environment: 'house'
-    value_type: 'constant'
     value: 150. # Wh thermiques
 
 Storage:
@@ -109,10 +93,9 @@ Storage:
     capacity: 1000 # Wh
     efficiency: 0.95
     initial_SOC: 0.1 # SOC of 50% at t0
+    final_SOC: 0.1
     calendar_aging: 1.
-    cost_in_type: 'constant'
     cost_in: 0. # €/Wh # Coût du cyclage, pénalise le fait d'utiliser la batterie
-    cost_out_type: 'constant'
     cost_out: 0. # 0.1 €/Wh 
     factor: 1. # If set to 'auto', will be optimized between values 0. and 5.
     factor_low_bound: 0.
@@ -132,11 +115,12 @@ Storage:
     capacity: 1000 # Wh
     efficiency: 0.95
     initial_SOC: 0.1 # SOC of 50% at t0
+    final_SOC: 0.1
     calendar_aging: 0.999
     factor: 1.
     installation_cost: 0. #3.
     volume_factor: 'auto'
-    volume_factor_low_bound: 0. # kWh
+    volume_factor_low_bound: 6. # kWh
     volume_factor_up_bound: 80. # kWh
     volume_factor_type: 'Continuous'
     volume_installation_cost: 1.28 # €/kWh
@@ -145,11 +129,15 @@ Storage:
     activate: True
     energy: 'electricity'
     environment: 'module'
-    capacity: 5000 # Wh
+    capacity: 1000 # Wh
     efficiency: 0.95
     initial_SOC: 0.5 # SOC of 50% at t0
+    final_SOC: 0.5
     calendar_aging: 0.999
-    factor: 1.
+    volume_factor: 'auto'
+    volume_factor_low_bound: 11. # kWh
+    volume_factor_up_bound: 80. # kWh
+    volume_factor_type: 'Continuous'
     volume_installation_cost: 1.28 # €/kWh
 
   house_temperature:
@@ -166,8 +154,7 @@ Convertor:
     activate: True
     environment: 'car'
     input_energy: 'electricity'
-    maximum_in_type: 'constant'
-    maximum_in: 100000 # Wh e
+    # maximum_in: 100000 # Wh e
     output_energies:
       distance: 0.007 # = 1./150 1/(Wh/km)
       # heat: 0.1 # (10% of heat losses)
@@ -184,8 +171,7 @@ Convertor:
     activate: False
     environment: 'house'
     input_energy: 'electricity'
-    maximum_in_type: 'constant'
-    maximum_in: 500 # Whth
+    # maximum_in: 500 # Whth
     output_energies:
       heat: 1.
 

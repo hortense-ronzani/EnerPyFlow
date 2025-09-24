@@ -39,3 +39,31 @@ def get_chronicle_from_path(path, type):
         return data[column]
     else:
         print('Invalid ' + path + ' chronicle' )
+
+def get_chronicle2(value, log=False, i=None):
+    # if value is a value
+    if i is None:
+        if type(value) == str:
+            try:
+                file, column = value.split('//')
+            except ValueError:
+                if log:
+                    print(value + ' not recognize as a dataframe column')
+                return value
+            data = pd.read_csv(file, sep=';')
+            return data[column]
+        else:
+            return value
+    # else, then value is a list
+    else:
+        if type(value[i]) == str:
+            try:
+                file, column = value[i].split('//')
+            except ValueError:
+                if log:
+                    print(value[i] + ' not recognize as a dataframe column')
+                return value[i]
+            data = pd.read_csv(file, sep=';')
+            return data[column]
+        else:
+            return value[i]
