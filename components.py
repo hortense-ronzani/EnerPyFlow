@@ -66,6 +66,71 @@ def get_default_values_Component_phase2(o):
 
 
 class Component:
+    """
+    This class represents the base components and some fictional objects and is used to build the links (energy flows).
+
+    Attributes:
+        name (str): Name of the component.
+        energy (str): Main energy type of the component.
+        environment (str): Main environment of the component.
+        description (dict): Portion of the configuration file describing the characteristics of the links
+        nb_of_timesteps (int): Number of timesteps of the simulation.
+        maximum (float | str): maximum value(s) of energy flow in and out of the component. Can be one value
+            (ex: maximum electricity exchanges through grid) or a sequence of the same duration of the simulation
+            duration (ex: hourly PV production). In this case, a string describing where the data is stored must
+            be given under this form : "path/to/data.csv//column_name_of_maximum". Value(s) must be given in the
+            unit of the energy type attached to the object.
+        maximum_in (float | str): maximum of the energy flow in the sense Hub -> Component. Same format as maximum,
+            default value is maximum, crushes maximum if both maximum_in and maximum are given (only maximum_in in
+            used in the problem constraints).
+        maximum_out (float | str): maximum of the energy flow in the sense Component -> Hub. Same format as maximum,
+            default value is maximum, crushes maximum if both maximum_out and maximum are given (only maximum_out in
+            used in the problem constraints).
+        minimum (float | str): minimum value(s) of energy flow in and out of the component. Can be one value or a
+            sequence of the same duration of the simulation duration. In this case, a string describing where the
+            data is stored must be given under this form : "path/to/data.csv//column_name_of_minimum". Value(s)
+            must be given in the unit of the energy type attached to the object. Default is 0. ; it highly
+            recommanded to NOT PUT NEGATIVE VALUES.
+        minimum_in (float | str): minimum of the energy flow in the sense Hub -> Component. Same format as minimum,
+            default value is minimum, crushes minimum if both minimum_in and minimum are given (only minimum_in in
+            used in the problem constraints).
+        minimum_out (float | str): minimum of the energy flow in the sense Component -> Hub. Same format as minimum,
+            default value is minimum, crushes minimum if both minimum_out and minimum are given (only minimum_out in
+            used in the problem constraints).
+        cost (float | str): cost value(s) of energy flow in and out of the component per energy type unit. Can be one
+            value or a sequence of the same duration of the simulation duration. In this case, a string describing
+            where the data is stored must be given under this form : "path/to/data.csv//column_name_of_cost". Value(s)
+            must be given in cost unit per unit of the energy type attached to the object. Default is 0. A positive
+            value is a cost, a negative value is a gain.
+        cost_in (float | str): minimum of the energy flow in the sense Hub -> Component. Same format as cost, default
+            value is -cost, crushes cost if both cost_in and cost are given (only cost_in in used in the problem
+            constraints).
+        cost_out (float | str): minimum of the energy flow in the sense Component -> Hub. Same format as cost, default
+            value is cost, crushes cost if both cost_out and cost are given (only cost_out in used in the problem
+            constraints).
+        factor (int | float | str): actual minimum and maximum flow values are multiplied by factor. Example of use: if the
+            input timeseries given as maximum_out describes the production of a 1 kWc PV panel but we want to have 5 kWc
+            of PV installed, set factor to 5 ; if the input timeseries describes a demand that we want to split as 50%
+            dispatchable and 50% not dispatchable, create to Demand objects (one with dispatchable=True, the other with
+            dispatchable=False) with this input timeseries and set factor=0.5 for both objects ; if the best size of
+            component has to be automatically optimized, set factor='auto'. WARNING: 'auto' option is not compatible
+            with dispatchable Demand objects.
+        factor_low_bound (int | float): used if factor is set to 'auto'. factor_low_bound <= factor.
+        factor_up_bound (int | float): used if factor is set to 'auto'. factor_up_bound => factor.
+        factor_type (str): used if factor is set to 'auto' and set the factor type. Can be 'Continuous', 'Integer' or 'Binary'. Example of use for 'Integer' : how many PV panels of 200 Wc should be installed ? Example of use for 'Binary' : should a generator be installed ? (Yes : factor=1., No : factor=0.)
+        installation_cost (float): cost for one unit installed (factor=1.) Total installation cost will be
+        installation_cost * factor.
+
+    Args:
+        name (str): Name of the component.
+        energy (str): Main energy type of the component.
+        environment (str): Main environment of the component.
+        description (dict): Sub-section of the configuration file describing the characteristics of the links (attributes of the Component).
+        nb_of_timesteps (int): Number of timesteps of the simulation.
+        isHub (bool): Must be True if the component described is a Hub (Component sub-class), else False.
+        i (int | None): To be used only if the component described is an EnvironmentsConnection (Component sub-class) to iterate within a list of specifications.
+        log (bool): If True, additional information will be printed throughout the initialization.
+    """
     def __init__(self, name, energy, environment, description, nb_of_timesteps=None, isHub=False, i=None, log=False):
         self.energy = energy
         self.environment = environment
@@ -102,6 +167,21 @@ class Component:
                                             cat=self.factor_type)
         
     def get_hub(self, hubs, environment=None, energy=None, log=False):
+        """
+        This method gets the Hub(environment, energy) to be linked to the Component object,
+        and creates it if it doesn't exist.
+
+        Args:
+            hubs (pd.DataFrame): Table of possible hubs.
+            environment (str): Environment of the Hub to be selected. Default is self.environment, the main
+                environment attached to the Component object.
+            energy (str): Energy of the Hub to be selected. Default is self.energy, the main energy type
+                attached to the Component object.
+            log (bool): If True, additional informations will be printed throughout the process.
+        
+        Returns:
+            Hub(Component): Hub object corresponding to (environment, energy).
+        """
         if environment is None:
             environment = self.environment
         if energy is None:
