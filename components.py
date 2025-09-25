@@ -170,7 +170,7 @@ class Hub(Component):
             self.equation = [self.equation[t] - variables[t] for t in range(self.nb_of_timesteps)]
         self.component_names.append(component_name)
    
-class Convertor(Component):
+class Converter(Component):
     def __init__(self, name, description, nb_of_timesteps, log=False):
         super().__init__(name, description['input_energy'], description['environment'], description, nb_of_timesteps, log=log,)
 
@@ -179,7 +179,7 @@ class Convertor(Component):
         self.input_energy = self.energy
         self.output_energies = description['output_energies']
 
-        # No energy flow from Convertor to input Hub
+        # No energy flow from Converter to input Hub
         self.maximum_out = 0.
         
         if log:
@@ -189,7 +189,7 @@ class Convertor(Component):
         # Create link from input energy hub
         hubs, model = self.link(hubs, model, log=log)
 
-        # Initialize a dictionnary to store Convertor equations
+        # Initialize a dictionnary to store Converter equations
         self.equations = {}
 
         # Crush flow_vars_out previously linked to input hub (which is 0 anyway)
@@ -204,7 +204,7 @@ class Convertor(Component):
                                             + '_' + str(t),
                                             lowBound=0) for t in range(self.nb_of_timesteps)]
             
-            # Add the flow linking convertor to its output hubs to the hubs equations
+            # Add the flow linking converter to its output hubs to the hubs equations
             output_hub.add_link(flow_vars_out, self.name + '_' + output_energy, sign='+', log=log)
             # No flow_vars_in relatef to output_hub
             self.flow_vars_out.update({output_energy: flow_vars_out})
@@ -347,6 +347,12 @@ class Demand(Component):
             self.maximum_in = self.value
             self.minimum_in = self.value
 
+        if type(self.factor) is pl.LpVariable:
+            if self.dispatchable:
+                print('ERROR: factor = "auto" should not be used for dispatchable Demand object ' + self.name + '.')
+                raise Exception('ERROR: factor = "auto" should not be used for dispatchable Demand object ' + self.name + '.')
+            
+
         if log:
             print(name + ' created.')
 
@@ -358,8 +364,8 @@ class Demand(Component):
             # Check
             # if np.mean(self.value*self.factor) >= self.maximum_hourly_dispatch:
             if  np.mean(self.value*self.factor) >= self.maximum_in:
-                print('ERROR: MAXIMUM HOURLY DISPATCH ALLOWED FOR CONSUMPTION IS NOT SUFFICIENT, ' \
-                'MUST BE AT LEAST ' + str(round(np.mean(self.value))+1))
+                raise Exception('ERROR: maximum hourly dispatch allowed for consumption is not sufficient, ' \
+                'must be at least ' + str(round(np.mean(self.value))+1))
 
             y_vars = {}
             # Dispatch every hourly consumption in the allowed time window
@@ -417,34 +423,6 @@ class EnvironmentsConnection(Component):
         name = self.environment1 + '_' + self.environment2
 
         super().__init__(name, '', environment1, description=descriptions, i=i, nb_of_timesteps=nb_of_timesteps, isHub=False, log=log,)
-
-        # try:
-        #     # self.maximum_out_type = descriptions['maximum_out_type'][i]
-        #     self.maximum_out = utils.get_chronicle('maximum_out', descriptions, i)
-        # except KeyError:
-        #     # self.maximum_out_type = 'constant'
-        #     self.maximum_out = 0.
-        
-        # try:
-        #     # self.maximum_in_type = descriptions['maximum_in_type'][i]
-        #     self.maximum_in = utils.get_chronicle('maximum_in', descriptions, i)
-        # except KeyError:
-        #     self.maximum_in_type = 'constant'
-        #     self.maximum_in = 0.
-
-        # try:
-        #     self.cost_out_type = descriptions['cost_out_type'][i]
-        #     self.cost_out =utils.get_chronicle('cost_out', descriptions, i)
-        # except KeyError:
-        #     self.cost_out_type = 'constant'
-        #     self.cost_out = 0.
-
-        # try:
-        #     self.cost_in_type = descriptions['cost_in_type'][i]
-        #     self.cost_in = utils.get_chronicle('cost_in', descriptions, i)
-        # except KeyError:
-        #     self.cost_in_type = 'constant'
-        #     self.cost_in = 0.
         
     def connect_as_input(self, hubs, model):
             self.vars_out = {}
@@ -466,11 +444,6 @@ class EnvironmentsConnection(Component):
                     for t in range(hub1.nb_of_timesteps):
                         model += hub1_to_hub2[t] <= bound(self.maximum_out, t)
                         model += hub2_to_hub1[t] <= bound(self.maximum_in, t)
-
-                    # # Cut flow when environment1 and environment2 are disconnected
-                    # for t in range(hub1.nb_of_timesteps):
-                    #     if not conditions[t]:
-                    #         hub1_to_hub2[t] = 0. # Not a pl.LpVariable anymore but a scalar value
 
                     # Add these new variables in the two hubs equations
                     hub1.add_link(hub1_to_hub2, component_name='to_' + hub2.name, sign='-')
@@ -586,7 +559,7 @@ class Model():
         classes = {'Source': Source,
                    'Demand': Demand,
                    'Storage': Storage,
-                   'Convertor': Convertor,}
+                   'Converter': Converter,}
         # For each type of component:
         for class_ in classes.keys():
             # Get specs from the config file
@@ -594,14 +567,14 @@ class Model():
             except KeyError :
                 if log:
                     print('No ' + class_ + ' found.')
-                continue # If no Storage or Convertor or ... element, do nothing and continue
+                continue # If no Storage or Converter or ... element, do nothing and continue
             self.components.update({class_: {}})
             # For each component of this type:
             for component_name in components_specs.keys():
                 if components_specs[component_name]['activate']: # If component is activated
                     if log:
                         print('Found ' + component_name)
-                    # Create object (Source, Demand, Storage or Convertor) from the specs
+                    # Create object (Source, Demand, Storage or Converter) from the specs
                     component = classes[class_](component_name,
                                                 components_specs[component_name],
                                                 nb_of_timesteps=self.nb_of_timesteps,
@@ -659,7 +632,7 @@ class Model():
         self.dispatch = pd.DataFrame(index=[t for t in range(self.nb_of_timesteps)])
         
         # Get primary energy flows values
-        for class_ in ['Source', 'Demand', 'Storage', 'Convertor']:
+        for class_ in ['Source', 'Demand', 'Storage', 'Converter']:
             if log:
                 print(class_)
             columns = self.components[class_].keys()
@@ -667,11 +640,11 @@ class Model():
                 if log:
                     print(column)
                 self.dispatch.insert(loc=0, column=column, value=np.zeros(self.nb_of_timesteps))
-                if not class_=='Convertor':
+                if not class_=='Converter':
                     for t in tqdm(self.dispatch.index):
                         self.dispatch.loc[t, column] = (value(self.components[class_][column].flow_vars_out[t])
                                                         - value(self.components[class_][column].flow_vars_in[t]))
-                elif class_=='Convertor':
+                elif class_=='Converter':
                     for t in tqdm(self.dispatch.index):
                         self.dispatch.loc[t, column] = - value(self.components[class_][column].flow_vars_in[t])
 
@@ -688,12 +661,12 @@ class Model():
             
         # Get output flows from conversion devices
         # conversion_components = get_components(self.elements_list, 'Conversion').keys()
-        conversion_components = self.components['Convertor'].keys()
+        conversion_components = self.components['Converter'].keys()
         for component in conversion_components:
-            for output_energy in self.components['Convertor'][component].output_energies.keys():
+            for output_energy in self.components['Converter'][component].output_energies.keys():
                 self.dispatch.insert(loc=0,
                                     column=component + '_' + output_energy,
-                                    value=[value(self.components['Convertor'][component].flow_vars_out[output_energy][t]) for t in range(self.nb_of_timesteps)])
+                                    value=[value(self.components['Converter'][component].flow_vars_out[output_energy][t]) for t in range(self.nb_of_timesteps)])
         
         # Get exchanges between environments
         for name in self.environmentsConnections.keys():
