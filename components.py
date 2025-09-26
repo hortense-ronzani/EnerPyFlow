@@ -115,11 +115,13 @@ class Component:
             dispatchable=False) with this input timeseries and set factor=0.5 for both objects ; if the best size of
             component has to be automatically optimized, set factor='auto'. WARNING: 'auto' option is not compatible
             with dispatchable Demand objects.
-        factor_low_bound (int | float): used if factor is set to 'auto'. factor_low_bound <= factor.
-        factor_up_bound (int | float): used if factor is set to 'auto'. factor_up_bound => factor.
-        factor_type (str): used if factor is set to 'auto' and set the factor type. Can be 'Continuous', 'Integer' or 'Binary'. Example of use for 'Integer' : how many PV panels of 200 Wc should be installed ? Example of use for 'Binary' : should a generator be installed ? (Yes : factor=1., No : factor=0.)
-        installation_cost (float): cost for one unit installed (factor=1.) Total installation cost will be
-        installation_cost * factor.
+        factor_low_bound (int | float): Used if factor is set to 'auto'. factor_low_bound <= factor.
+        factor_up_bound (int | float): Used if factor is set to 'auto'. factor_up_bound => factor.
+        factor_type (str): Used if factor is set to 'auto' and set the factor type. Can be 'Continuous', 'Integer' or 'Binary'.
+            Example of use for 'Integer' : how many PV panels of 200 Wc should be installed ? Example of use for 'Binary' :
+            should a generator be installed ? (Yes : factor=1., No : factor=0.)
+        installation_cost (float): Cost for one unit installed (factor=1.) Total installation cost will be
+            installation_cost * factor.
 
     Args:
         name (str): Name of the component.
@@ -172,7 +174,7 @@ class Component:
         and creates it if it doesn't exist.
 
         Args:
-            hubs (pd.DataFrame): Table of possible hubs.
+            hubs (pd.DataFrame): Table of all hubs.
             environment (str): Environment of the Hub to be selected. Default is self.environment, the main
                 environment attached to the Component object.
             energy (str): Energy of the Hub to be selected. Default is self.energy, the main energy type
@@ -199,7 +201,9 @@ class Component:
 
         return hub
     
-    def link(self, hubs, model, log=False):  
+    def link(self, hubs, model, log=False):
+        """ 
+        """
         self.flow_vars_in = [pl.LpVariable('hub_to_' + self.name + '_' + str(t)) for t in range(self.nb_of_timesteps)]
         self.flow_vars_out = [pl.LpVariable(self.name + '_to_hub_' + str(t)) for t in range(self.nb_of_timesteps)]
 
