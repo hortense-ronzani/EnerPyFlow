@@ -1,46 +1,18 @@
 import pulp as pl
 
-# Skip utils installation
+# Skip modules installation
 import os
 import sys
 sys.path.insert(0, os.path.abspath('.'))
 import yaml
-from tqdm import tqdm
-import shutil
-
-from datetime import datetime
-#from utils import *
-#import utils.get_chronicle
 
 import utils
+from utils import *
 
 import importlib
 importlib.reload(utils)
 import pandas as pd
 import numpy as np
-
-import matplotlib.pyplot as plt
-
-# M = 50000
-# colors that will be used for the plots
-COLORS = ['#BFA85B',
- '#6C3E80',
- '#219EBC',
- '#484C7E',
- '#C7754C',
- '#EC674E',
- '#82A9A1',
- '#B41F58',
- '#4A62AB',
- '#ef476f',
- '#012640',
- '#FFBC42',
- '#0496FF',
- '#D81159',
- '#8F2D56',
- '#006BA6',
- '#FFFFFF',
-]
 
 # default values part 1 = that can be given directly
 default_values_Component_phase1 = {'minimum': 0.,
@@ -55,6 +27,15 @@ default_values_Component_phase1 = {'minimum': 0.,
 
 # default values that depend on the actual values given in phase 1
 def get_default_values_Component_phase2(o):
+    """
+    Gets default values of the attributes of a Component that depends on other attributes values.
+
+    Args:
+        o (Component): Component object to read the already created attributes from.
+    
+    Returns:
+        dict(): Dictionnary with new attributes names as keys containing their default values.
+    """
     default_values_Component_phase2 = {'minimum_in': getattr(o, 'minimum'),
                                     'minimum_out': getattr(o, 'minimum'),
                                     'maximum_in': getattr(o, 'maximum'),
@@ -63,7 +44,6 @@ def get_default_values_Component_phase2(o):
                                     'cost_out': getattr(o, 'cost'),
                                     }
     return default_values_Component_phase2
-
 
 class Component:
     """
@@ -122,6 +102,12 @@ class Component:
             should a generator be installed ? (Yes : factor=1., No : factor=0.)
         installation_cost (float): Cost for one unit installed (factor=1.) Total installation cost will be
             installation_cost * factor.
+        flow_vars_in (list[pulp.LpVariable]): List of length nb_of_timesteps containing the flow-in variables (from Hub to Component)
+            of the Component at each timestep. Once the problem solved, flow_vars_in[t].value() returns the optimized value of the
+            variable for each timestep t between 0 and nb_of_timesteps-1. 
+        flow_vars_out (list[pulp.LpVariable]): List of length nb_of_timesteps containing the flow-out variables (from Component to Hub)
+            of the Component at each timestep. Once the problem solved, flow_vars_out[t].value() returns the optimized value of the
+            variable for each timestep t between 0 and nb_of_timesteps-1.
 
     Args:
         name (str): Name of the component.
@@ -146,7 +132,7 @@ class Component:
             for attribute in default_values_Component_phase1.keys():
                 try:
                     # Read value from the configuration file
-                    self.__setattr__(attribute, utils.get_chronicle2(description[attribute], log=log, i=i))
+                    self.__setattr__(attribute, get_chronicle(description[attribute], log=log, i=i))
                 except KeyError:
                     # If no value given in the configuration, set default value
                     self.__setattr__(attribute, default_values_Component_phase1[attribute])
@@ -157,7 +143,7 @@ class Component:
             for attribute in default_values_Component_phase2.keys():
                 try:
                     # Read value from the configuration file
-                    self.__setattr__(attribute, utils.get_chronicle2(description[attribute], log=log, i=i))
+                    self.__setattr__(attribute, get_chronicle(description[attribute], log=log, i=i))
                 except KeyError: # if attribute not found in the configuration file
                     # If no value given in the configuration, set default value
                     self.__setattr__(attribute, default_values_Component_phase2[attribute])
@@ -174,12 +160,12 @@ class Component:
         and creates it if it doesn't exist.
 
         Args:
-            hubs (pd.DataFrame): Table of all hubs.
+            hubs (pandas.DataFrame): Table of all hubs.
             environment (str): Environment of the Hub to be selected. Default is self.environment, the main
                 environment attached to the Component object.
             energy (str): Energy of the Hub to be selected. Default is self.energy, the main energy type
                 attached to the Component object.
-            log (bool): If True, additional informations will be printed throughout the process.
+            log (bool): If True, additional information will be printed throughout the process.
         
         Returns:
             Hub(Component): Hub object corresponding to (environment, energy).
@@ -202,7 +188,21 @@ class Component:
         return hub
     
     def link(self, hubs, model, log=False):
-        """ 
+        """
+        This methods creates flow_vars_in and flow_vars_out lists of flow variables that will be optimized, adds them
+        to them to the Hub equation (energy conservation equation), and add the constraints factor*minimum_in[t] <=
+        flow_vars_in[t] <= factor*maximum_in[t] and factor*minimum_out[t] <= flow_vars_out[t] <= factor*maximum_out[t]
+        for every timestep t between 0 and nb_of_timesteps-1. Updates the model objective function with costs attributed
+        to the flow variables: model.objective += sum_t flow_vars_in[t]*cost_in[t] + flow_vars_out[t]*cost_out[t].
+
+        Args:
+            hubs (pandas.DataFrame): Table of all hubs.
+            model (pulp.LpProblem): Pulp linear problem to be optimized.
+            log (bool): If True, additional information will be printed throughout the process.
+
+        Returns:
+            pandas.DataFrame: Updated table of all hubs.
+            pulp.LpProblem: Updated pulp linear problem to be optimized.
         """
         self.flow_vars_in = [pl.LpVariable('hub_to_' + self.name + '_' + str(t)) for t in range(self.nb_of_timesteps)]
         self.flow_vars_out = [pl.LpVariable(self.name + '_to_hub_' + str(t)) for t in range(self.nb_of_timesteps)]
@@ -236,11 +236,36 @@ class Component:
         return hubs, model
     
 class Hub(Component):
+    """
+    Sub-class of Component class representing the link between other Components belonging to the same environment with the same
+    energy type. Examples: Hub(house, electricity), Hub(house, heat) or Hub(car, electricity). Is used to implement the energy
+    conservation equation within each environment and for each energy type.
+
+    Inherited attributes:
+        name (str): Name of the hub.
+        environment (str): Main environment of the hub.
+        energy (str): Main energy type of the hub.
+        nb_of_timesteps (int): Number of timesteps of the simulation.
+
+    Attributes:
+        unused_energy (list[pulp.LpVariable]): List of variables representing the energy losses of the hub at each timestep.
+        equation (list[pulpLpConstraint]): List of equations representing the conservation of energy (everything entering
+            the hub = everything going out of the hub) at each timestep.
+        component_names (list[str]): List of names of the components linked to the hub.
+
+    Args:
+        environment (str): Main environment of the hub.
+        energy (str): Main energy type of the hub.
+        nb_of_timesteps (int): Number of timesteps of the simulation.
+        log (bool): If True, additional information will be printed throughout the initialization.
+    """
     def __init__(self, environment, energy, nb_of_timesteps, log=False):
         name = 'hub_' + energy + '_' + environment
+        # Instanciate the hub as a Component
         super().__init__(name, energy, environment, description=None, nb_of_timesteps=nb_of_timesteps, isHub=True, log=log,)
 
         self.unused_energy = [pl.LpVariable('unused_energy_' + self.name + '_' + str(t), lowBound=0) for t in range(self.nb_of_timesteps)]
+        # Initialize the hub equation with right hand side = 0 and left hand side = - losses[t] for each timestep t
         self.equation = [pl.LpConstraint(e=-self.unused_energy[t],
                                         sense=pl.LpConstraintEQ,
                                         name='equation_' + self.name + '_' + str(t),
@@ -248,17 +273,110 @@ class Hub(Component):
         self.component_names = []
         
     def add_link(self, variables, component_name, sign='+', log=False):
+        """
+        Link a new component to the hub by adding its flow variables to the hub equation.
+
+        Args:
+            variables (list[pulp.LpVariable]): Liste of length nb_of_timesteps with flow variables to be added to the hub
+                equation.
+            component_name (str): Name of the component to be linked.
+            sign (str): Can be '+' or '-'. Describes whether it is flow_in or flow_out variables. If sign='+' then +variables[t]
+                is added to the left hand side of the hub equation, else if sign='-' then -variables[t] is added to the left hand
+                side of the hub equation.
+            log (bool): If True, additional information will be printed throughout the initialization.
+
+        """
         if sign == '+':
             self.equation = [self.equation[t] + variables[t] for t in range(self.nb_of_timesteps)]
         elif sign == '-':
             self.equation = [self.equation[t] - variables[t] for t in range(self.nb_of_timesteps)]
+        # Update the list of names of components linked to this hub
         self.component_names.append(component_name)
+        if log:
+            print(self.name + ' updated with ' + component_name)
    
 class Converter(Component):
+    """
+    Sub-class of Component class representing a converter object. Allows to link different hubs within a same environment
+    with different energy types, with efficiency factors for the conversion. Only one sense is allowed for energy conversion,
+    from only one input hub to one or several output hubs.
+
+    Inherited Attributes:
+        name (str): Name of the component.
+        energy (str): Main energy type of the component.    
+        environment (str): Main environment of the component.
+        description (dict): Portion of the configuration file describing the characteristics of the links
+        nb_of_timesteps (int): Number of timesteps of the simulation.
+        maximum (float | str): maximum value(s) of energy flow in and out of the component. Can be one value
+            (ex: maximum electricity exchanges through grid) or a sequence of the same duration of the simulation
+            duration (ex: hourly PV production). In this case, a string describing where the data is stored must
+            be given under this form : "path/to/data.csv//column_name_of_maximum". Value(s) must be given in the
+            unit of the energy type attached to the object.
+        maximum_in (float | str): maximum of the energy flow in the sense Hub -> Component. Same format as maximum,
+            default value is maximum, crushes maximum if both maximum_in and maximum are given (only maximum_in in
+            used in the problem constraints).
+        maximum_out (float | str): maximum of the energy flow in the sense Component -> Hub. Same format as maximum,
+            default value is maximum, crushes maximum if both maximum_out and maximum are given (only maximum_out in
+            used in the problem constraints). ALWAYS=0. FOR A CONVERTER OBJECT.
+        minimum (float | str): minimum value(s) of energy flow in and out of the component. Can be one value or a
+            sequence of the same duration of the simulation duration. In this case, a string describing where the
+            data is stored must be given under this form : "path/to/data.csv//column_name_of_minimum". Value(s)
+            must be given in the unit of the energy type attached to the object. Default is 0. ; it highly
+            recommanded to NOT PUT NEGATIVE VALUES.
+        minimum_in (float | str): minimum of the energy flow in the sense Hub -> Component. Same format as minimum,
+            default value is minimum, crushes minimum if both minimum_in and minimum are given (only minimum_in in
+            used in the problem constraints).
+        minimum_out (float | str): minimum of the energy flow in the sense Component -> Hub. Same format as minimum,
+            default value is minimum, crushes minimum if both minimum_out and minimum are given (only minimum_out in
+            used in the problem constraints).
+        cost (float | str): cost value(s) of energy flow in and out of the component per energy type unit. Can be one
+            value or a sequence of the same duration of the simulation duration. In this case, a string describing
+            where the data is stored must be given under this form : "path/to/data.csv//column_name_of_cost". Value(s)
+            must be given in cost unit per unit of the energy type attached to the object. Default is 0. A positive
+            value is a cost, a negative value is a gain.
+        cost_in (float | str): minimum of the energy flow in the sense Hub -> Component. Same format as cost, default
+            value is -cost, crushes cost if both cost_in and cost are given (only cost_in in used in the problem
+            constraints).
+        cost_out (float | str): minimum of the energy flow in the sense Component -> Hub. Same format as cost, default
+            value is cost, crushes cost if both cost_out and cost are given (only cost_out in used in the problem
+            constraints).
+        factor (int | float | str): actual minimum and maximum flow values are multiplied by factor. Example of use: if the
+            input timeseries given as maximum_out describes the production of a 1 kWc PV panel but we want to have 5 kWc
+            of PV installed, set factor to 5 ; if the input timeseries describes a demand that we want to split as 50%
+            dispatchable and 50% not dispatchable, create to Demand objects (one with dispatchable=True, the other with
+            dispatchable=False) with this input timeseries and set factor=0.5 for both objects ; if the best size of
+            component has to be automatically optimized, set factor='auto'. WARNING: 'auto' option is not compatible
+            with dispatchable Demand objects.
+        factor_low_bound (int | float): Used if factor is set to 'auto'. factor_low_bound <= factor.
+        factor_up_bound (int | float): Used if factor is set to 'auto'. factor_up_bound => factor.
+        factor_type (str): Used if factor is set to 'auto' and set the factor type. Can be 'Continuous', 'Integer' or 'Binary'.
+            Example of use for 'Integer' : how many PV panels of 200 Wc should be installed ? Example of use for 'Binary' :
+            should a generator be installed ? (Yes : factor=1., No : factor=0.)
+        installation_cost (float): Cost for one unit installed (factor=1.) Total installation cost will be
+            installation_cost * factor.
+        flow_vars_in (list[pulp.LpVariable]): List of length nb_of_timesteps containing the flow-in variables (from Hub to Component)
+            of the Component at each timestep. Once the problem solved, flow_vars_in[t].value() returns the optimized value of the
+            variable for each timestep t between 0 and nb_of_timesteps-1.
+
+    Attributes:
+        input_energy (str): Input energy type.
+        output_energies (list[str]): List of output energies.
+        flow_vars_out (dict[str:list[pulp.LpVariable]]): Dictionnary with output energy types as keys and lists of length nb_of_timesteps
+            containing the flow-out variables (from Component to Hub) of the Converter at each timestep, for each type of output energy.
+            Once the problem solved, flow_vars_out[t].value() returns the optimized value of the variable for each timestep t between 0
+            and nb_of_timesteps-1.
+        equations (dict[str:list[pulp.LpConstraint]]): Dictionnary with output energy types as keys and lists of length nb_of_timesteps
+            containing the conversion equations from the input energy type to each output energy type, at each timestep:
+            flow_vars_out[output_energy][t] = conversion_ratio*flow_vars_in[t] for each timestep t between 0 and nb_of_timesteps-1.
+
+    Args:
+        name (str): Name of the component.
+        description (dict): Portion of the configuration file describing the characteristics of the links
+        nb_of_timesteps (int): Number of timesteps of the simulation.
+        log (bool): If True, additional information will be printed throughout the initialization.
+    """
     def __init__(self, name, description, nb_of_timesteps, log=False):
         super().__init__(name, description['input_energy'], description['environment'], description, nb_of_timesteps, log=log,)
-
-        self.name = name
 
         self.input_energy = self.energy
         self.output_energies = description['output_energies']
@@ -270,6 +388,21 @@ class Converter(Component):
             print(name + ' created.')
 
     def build_equations(self, hubs, model=None, log=False):
+        """
+        Method to build the conversion equations between output energy types and input energy type. Calls method Component.link()
+        to build variables and constraints related to the input energy hub, creates flow_vars_out variables for the links with the
+        output energy hubs, adds them to the output energy hubs equations, builds conversions equations between input energy flows
+        and output energy flows and adds them to the linear problem as constraints.
+
+        Args:
+            hubs (pandas.DataFrame): Table of all hubs.
+            model (pulp.LpProblem): Pulp linear problem to be optimized.
+            log (bool): If True, additional information will be printed throughout the process.
+        
+        Returns:
+            pandas.DataFrame: Updated table of all hubs.
+            pulp.LpProblem: Updated pulp linear problem to be optimized.
+        """
         # Create link from input energy hub
         hubs, model = self.link(hubs, model, log=log)
 
@@ -311,6 +444,94 @@ class Converter(Component):
         return hubs, model
 
 class Storage(Component):
+    """
+    Sub-class of Component class representing a storage device.
+
+    Inherited Attributes:
+        name (str): Name of the component.
+        energy (str): Main energy type of the component.    
+        environment (str): Main environment of the component.
+        description (dict): Portion of the configuration file describing the characteristics of the links
+        nb_of_timesteps (int): Number of timesteps of the simulation.
+        maximum (float | str): maximum value(s) of energy flow in and out of the component. Can be one value
+            (ex: maximum electricity exchanges through grid) or a sequence of the same duration of the simulation
+            duration (ex: hourly PV production). In this case, a string describing where the data is stored must
+            be given under this form : "path/to/data.csv//column_name_of_maximum". Value(s) must be given in the
+            unit of the energy type attached to the object.
+        maximum_in (float | str): maximum of the energy flow in the sense Hub -> Component. Same format as maximum,
+            default value is maximum, crushes maximum if both maximum_in and maximum are given (only maximum_in in
+            used in the problem constraints).
+        maximum_out (float | str): maximum of the energy flow in the sense Component -> Hub. Same format as maximum,
+            default value is maximum, crushes maximum if both maximum_out and maximum are given (only maximum_out in
+            used in the problem constraints).
+        minimum (float | str): minimum value(s) of energy flow in and out of the component. Can be one value or a
+            sequence of the same duration of the simulation duration. In this case, a string describing where the
+            data is stored must be given under this form : "path/to/data.csv//column_name_of_minimum". Value(s)
+            must be given in the unit of the energy type attached to the object. Default is 0. ; it highly
+            recommanded to NOT PUT NEGATIVE VALUES.
+        minimum_in (float | str): minimum of the energy flow in the sense Hub -> Component. Same format as minimum,
+            default value is minimum, crushes minimum if both minimum_in and minimum are given (only minimum_in in
+            used in the problem constraints).
+        minimum_out (float | str): minimum of the energy flow in the sense Component -> Hub. Same format as minimum,
+            default value is minimum, crushes minimum if both minimum_out and minimum are given (only minimum_out in
+            used in the problem constraints).
+        cost (float | str): cost value(s) of energy flow in and out of the component per energy type unit. Can be one
+            value or a sequence of the same duration of the simulation duration. In this case, a string describing
+            where the data is stored must be given under this form : "path/to/data.csv//column_name_of_cost". Value(s)
+            must be given in cost unit per unit of the energy type attached to the object. Default is 0. A positive
+            value is a cost, a negative value is a gain.
+        cost_in (float | str): minimum of the energy flow in the sense Hub -> Component. Same format as cost, default
+            value is -cost, crushes cost if both cost_in and cost are given (only cost_in in used in the problem
+            constraints).
+        cost_out (float | str): minimum of the energy flow in the sense Component -> Hub. Same format as cost, default
+            value is cost, crushes cost if both cost_out and cost are given (only cost_out in used in the problem
+            constraints).
+        factor (int | float | str): actual minimum and maximum flow values are multiplied by factor. Example of use: if the
+            input timeseries given as maximum_out describes the production of a 1 kWc PV panel but we want to have 5 kWc
+            of PV installed, set factor to 5 ; if the input timeseries describes a demand that we want to split as 50%
+            dispatchable and 50% not dispatchable, create to Demand objects (one with dispatchable=True, the other with
+            dispatchable=False) with this input timeseries and set factor=0.5 for both objects ; if the best size of
+            component has to be automatically optimized, set factor='auto'. WARNING: 'auto' option is not compatible
+            with dispatchable Demand objects.
+        factor_low_bound (int | float): Used if factor is set to 'auto'. factor_low_bound <= factor.
+        factor_up_bound (int | float): Used if factor is set to 'auto'. factor_up_bound => factor.
+        factor_type (str): Used if factor is set to 'auto' and set the factor type. Can be 'Continuous', 'Integer' or 'Binary'.
+            Example of use for 'Integer' : how many PV panels of 200 Wc should be installed ? Example of use for 'Binary' :
+            should a generator be installed ? (Yes : factor=1., No : factor=0.)
+        installation_cost (float): Cost for one unit installed (factor=1.) Total installation cost will be
+            installation_cost * factor.
+        flow_vars_in (list[pulp.LpVariable]): List of length nb_of_timesteps containing the flow-in variables (from Hub to Component)
+            of the Component at each timestep. Once the problem solved, flow_vars_in[t].value() returns the optimized value of the
+            variable for each timestep t between 0 and nb_of_timesteps-1.
+        flow_vars_out (list[pulp.LpVariable]): List of length nb_of_timesteps containing the flow-out variables (from Hub to Component)
+            of the Component at each timestep. Once the problem solved, flow_vars_out[t].value() returns the optimized value of the
+            variable for each timestep t between 0 and nb_of_timesteps-1.
+
+    Attributes:
+        SOC (list[pulp.LpVariable]): List of length nb_of_timesteps of variables describing the energy contained in the storage at every
+            timestep.
+        capacity (float): Storage capacity, in the same unit as its energy type.
+        initial_SOC (float): Initial storage state-of-charge rate (at t=0), must be comprised between 0. and 1.
+        final_SOC (float): Final storage state-of-charge rate (at t=nb_of_timesteps - 1), must be comprised between 0. and 1.
+        efficiency (float): Storage efficiency = energy out / energy in. Must be comprised between 0. and 1.
+        calendar_loss (float): Loss of energy stored at each timestep = energy stored at t / energy stored at t-1 without external flows.
+            Must be comprised between 0. and 1.
+        volume_factor (float | int | str): Actual storage capacity is multiplied by volume_factor: 0 <= SOC[t] <= volume_factor * capacity for
+            each timestep t. If volume_factor is set to 'auto', best volume_factor will be automatically determined.
+        volume_factor_type (str): Used if volume_factor is set to 'auto' and set the factor type. Can be 'Continuous', 'Integer' or 'Binary'.
+        volume_factor_low_bound (float): Used if volume_factor is set to 'auto' and set the factor type. volume_factor_low_bound <= volume_factor.
+        volume_factor_up_bound (float): Used if volume_factor is set to 'auto' and set the factor type. volume_factor_up_bound => volume_factor.
+        volume_installation_cost (float): Cost for one unit installed (volume_factor=1.) Total installation due to storage volume will be
+            volume_installation_cost * volume_factor.
+        equation (list[pulp.LpConstraints]): List of length nb_of_timesteps containing the storage energy conservation equations for every
+            timestep t>0 : SOC[t] = calendar_loss*SOC[t-1] + (efficiency)^(1/2)*flow_vars_in[t-1] - efficiency^(-1/2)*flow_vars_out[t-1].
+    
+    Args:
+        name (str): Name of the component.
+        description (dict): Portion of the configuration file describing the characteristics of the component links.
+        nb_of_timesteps (int): Number of timesteps of the simulation.
+        log (bool): If True, additional information will be printed throughout the initialization.
+    """
     def __init__(self, name, description, nb_of_timesteps, log=False):
         super().__init__(name, description['energy'], description['environment'], description, nb_of_timesteps, log=log)
 
@@ -319,10 +540,6 @@ class Storage(Component):
         self.initial_SOC = description['initial_SOC']
         self.final_SOC = description['final_SOC']
 
-        # infinite maximum flow values would cause the solver to crash
-        # self.maximum_in = min(self.maximum_in, self.capacity*10000)
-        # self.maximum_out = min(self.maximum_out, self.capacity*10000)
-
         # Get Storage-specific parameters
         try:
             self.efficiency = description['efficiency']
@@ -330,9 +547,9 @@ class Storage(Component):
             self.efficiency = 1.
         
         try:
-            self.calendar_aging = description['calendar_aging']
+            self.calendar_loss = description['calendar_aging']
         except:
-            self.calendar_aging = 1.
+            self.calendar_loss = 1.
         
         # Volume factor
         try:
@@ -365,6 +582,22 @@ class Storage(Component):
             print(name + ' created.')
 
     def build_equations(self, hubs, model, log=False):
+        """
+        Method to build storage-specific variables and constraints. Calls method Component.link() to build variables and
+        constraints related to the energy flows, creates SOC variables for the energy stored at each timestep, builds 
+        equations to modelize the storage capacity and energy flows and adds them to the linear problem as constraints.
+
+        Args:
+            hubs (pandas.DataFrame): Table of all hubs.
+            model (pulp.LpProblem): Pulp linear problem to be optimized.
+            log (bool): If True, additional information will be printed throughout the process.
+        
+        Returns:
+            pandas.DataFrame: Updated table of all hubs.
+            pulp.LpProblem: Updated pulp linear problem to be optimized.
+        """
+        
+
         # Link to Hub
         hubs, model = self.link(hubs, model)
 
@@ -392,7 +625,7 @@ class Storage(Component):
         # Storage equation    
         for t in range(1, self.nb_of_timesteps):
             self.equation.append(pl.LpConstraint(e=self.SOC[t]
-                                                 - self.calendar_aging*self.SOC[t-1]
+                                                 - self.calendar_loss*self.SOC[t-1]
                                                  - np.sqrt(self.efficiency)*self.flow_vars_in[t-1]
                                                  + np.sqrt(1/self.efficiency)*self.flow_vars_out[t-1],
                                         sense=pl.LpConstraintEQ,
@@ -406,6 +639,82 @@ class Storage(Component):
         return hubs, model
 
 class Demand(Component):
+    """
+    Sub-class of Component class representing an energy demand. Can be dispatchable within some limitations or not
+    dispatchable (default).
+
+    Inherited Attributes:
+        name (str): Name of the component.
+        energy (str): Main energy type of the component.    
+        environment (str): Main environment of the component.
+        description (dict): Portion of the configuration file describing the characteristics of the links
+        nb_of_timesteps (int): Number of timesteps of the simulation.
+        maximum (float | str): maximum value(s) of energy flow in and out of the component. Can be one value
+            (ex: maximum electricity exchanges through grid) or a sequence of the same duration of the simulation
+            duration (ex: hourly PV production). In this case, a string describing where the data is stored must
+            be given under this form : "path/to/data.csv//column_name_of_maximum". Value(s) must be given in the
+            unit of the energy type attached to the object.
+        maximum_in (float | str): maximum of the energy flow in the sense Hub -> Component. Same format as maximum,
+            default value is maximum, crushes maximum if both maximum_in and maximum are given (only maximum_in in
+            used in the problem constraints).
+        maximum_out (float | str): maximum of the energy flow in the sense Component -> Hub. Same format as maximum,
+            default value is maximum, crushes maximum if both maximum_out and maximum are given (only maximum_out in
+            used in the problem constraints). ALWAYS=0. FOR A DEMAND OBJECT.
+        minimum (float | str): minimum value(s) of energy flow in and out of the component. Can be one value or a
+            sequence of the same duration of the simulation duration. In this case, a string describing where the
+            data is stored must be given under this form : "path/to/data.csv//column_name_of_minimum". Value(s)
+            must be given in the unit of the energy type attached to the object. ALWAYS=0. FOR A DEMAND OBJECT.
+        minimum_in (float | str): minimum of the energy flow in the sense Hub -> Component. Same format as minimum,
+            default value is minimum, crushes minimum if both minimum_in and minimum are given (only minimum_in in
+            used in the problem constraints). If demand is not dispatchable, will be force to minimum_in=value.
+        minimum_out (float | str): minimum of the energy flow in the sense Component -> Hub. Same format as minimum,
+            default value is minimum, crushes minimum if both minimum_out and minimum are given (only minimum_out in
+            used in the problem constraints). If demand is not dispatchable, will be force to minimum_in=value.
+        cost (float | str): cost value(s) of energy flow in and out of the component per energy type unit. Can be one
+            value or a sequence of the same duration of the simulation duration. In this case, a string describing
+            where the data is stored must be given under this form : "path/to/data.csv//column_name_of_cost". Value(s)
+            must be given in cost unit per unit of the energy type attached to the object. Default is 0. A positive
+            value is a cost, a negative value is a gain.
+        cost_in (float | str): minimum of the energy flow in the sense Hub -> Component. Same format as cost, default
+            value is -cost, crushes cost if both cost_in and cost are given (only cost_in in used in the problem
+            constraints).
+        cost_out (float | str): minimum of the energy flow in the sense Component -> Hub. Same format as cost, default
+            value is cost, crushes cost if both cost_out and cost are given (only cost_out in used in the problem
+            constraints).
+        factor (int | float | str): actual minimum and maximum flow values are multiplied by factor. Example of use: if the
+            input timeseries given as maximum_out describes the production of a 1 kWc PV panel but we want to have 5 kWc
+            of PV installed, set factor to 5 ; if the input timeseries describes a demand that we want to split as 50%
+            dispatchable and 50% not dispatchable, create to Demand objects (one with dispatchable=True, the other with
+            dispatchable=False) with this input timeseries and set factor=0.5 for both objects. 'AUTO' OPTION IS NOT COMPATIBLE WITH
+            DISPATCHABLE DEMAND OBJECTS.
+        factor_low_bound (int | float): Used if factor is set to 'auto'. factor_low_bound <= factor.
+        factor_up_bound (int | float): Used if factor is set to 'auto'. factor_up_bound => factor.
+        factor_type (str): Used if factor is set to 'auto' and set the factor type. Can be 'Continuous', 'Integer' or 'Binary'.
+            Example of use for 'Integer' : how many PV panels of 200 Wc should be installed ? Example of use for 'Binary' :
+            should a generator be installed ? (Yes : factor=1., No : factor=0.)
+        installation_cost (float): Cost for one unit installed (factor=1.) Total installation cost will be
+            installation_cost * factor.
+        flow_vars_in (list[pulp.LpVariable]): List of length nb_of_timesteps containing the flow-in variables (from Hub to Component)
+            of the Component at each timestep. Once the problem solved, flow_vars_in[t].value() returns the optimized value of the
+            variable for each timestep t between 0 and nb_of_timesteps-1.
+        flow_vars_out (list[pulp.LpVariable]): List of length nb_of_timesteps containing the flow-out variables (from Hub to Component)
+            of the Component at each timestep. Once the problem solved, flow_vars_out[t].value() returns the optimized value of the
+            variable for each timestep t between 0 and nb_of_timesteps-1.
+    
+    Attributes:
+        dispatchable (bool): True if demand is dispatchable, else False.
+        dispatch_window (int): Used only if demand is dispatchable. Indicates the extend to when each chunk of initial demand can be
+            displaced. Example: if dispatch_window=24, each chunk of initial demand can be dispatched within the time window [-12, +12].
+        value (List[float]): List of length nb_of_timesteps with initial demand values, in energy type unit.
+        y_vars (pandas.DataFrame): Only if demand is dispatchable. Table of variables indicating when each chunk of initial demand is
+            displaced.
+    
+    Args:
+        name (str): Name of the component.
+        description (dict): Portion of the configuration file describing the characteristics of the component links.
+        nb_of_timesteps (int): Number of timesteps of the simulation.
+        log (bool): If True, additional information will be printed throughout the initialization.
+    """
     def __init__(self, name, description, nb_of_timesteps, log=False):
         super().__init__(name, description['energy'], description['environment'], description, nb_of_timesteps, log=log,)
                 
@@ -424,8 +733,7 @@ class Demand(Component):
         self.maximum_out = 0.
         self.minimum_out = 0.
 
-        # self.value_type = description['value_type']
-        self.value = utils.get_chronicle2(description['value'], log=log)
+        self.value = get_chronicle(description['value'], log=log)
         if not self.dispatchable:
             # Bounds of Hub -> Demand
             self.maximum_in = self.value
@@ -441,6 +749,21 @@ class Demand(Component):
             print(name + ' created.')
 
     def build_equations(self, hubs, model, log=False):
+        """
+        Method to build demand-specific variables and constraints. Calls method Component.link() to build
+        variables and constraints related to the energy flows, and if demand is dispatchable, creates dispatching
+        variables and equations variables and adds them to the linear problem as constraints.
+
+        Args:
+            hubs (pandas.DataFrame): Table of all hubs.
+            model (pulp.LpProblem): Pulp linear problem to be optimized.
+            log (bool): If True, additional information will be printed throughout the process.
+        
+        Returns:
+            pandas.DataFrame: Updated table of all hubs.
+            pulp.LpProblem: Updated pulp linear problem to be optimized.
+        """
+
         # Build flow variables and link them to Hub
         hubs, model = self.link(hubs, model, log=log)
 
@@ -486,6 +809,73 @@ class Demand(Component):
         return hubs, model
 
 class Source(Component):
+    """
+    Sub-class of Component class representing an energy source. Note that if specified,it is possible to send energy
+    toward the source (reinjecting electricity to the grid for instance).
+
+    Inherited Attributes:
+        name (str): Name of the component.
+        energy (str): Main energy type of the component.    
+        environment (str): Main environment of the component.
+        description (dict): Portion of the configuration file describing the characteristics of the links
+        nb_of_timesteps (int): Number of timesteps of the simulation.
+        maximum (float | str): maximum value(s) of energy flow in and out of the component. Can be one value
+            (ex: maximum electricity exchanges through grid) or a sequence of the same duration of the simulation
+            duration (ex: hourly PV production). In this case, a string describing where the data is stored must
+            be given under this form : "path/to/data.csv//column_name_of_maximum". Value(s) must be given in the
+            unit of the energy type attached to the object.
+        maximum_in (float | str): maximum of the energy flow in the sense Hub -> Component. Same format as maximum,
+            default value is maximum, crushes maximum if both maximum_in and maximum are given (only maximum_in in
+            used in the problem constraints).
+        maximum_out (float | str): maximum of the energy flow in the sense Component -> Hub. Same format as maximum,
+            default value is maximum, crushes maximum if both maximum_out and maximum are given (only maximum_out in
+            used in the problem constraints).
+        minimum (float | str): minimum value(s) of energy flow in and out of the component. Can be one value or a
+            sequence of the same duration of the simulation duration. In this case, a string describing where the
+            data is stored must be given under this form : "path/to/data.csv//column_name_of_minimum". Value(s)
+            must be given in the unit of the energy type attached to the object.
+        minimum_in (float | str): minimum of the energy flow in the sense Hub -> Component. Same format as minimum,
+            default value is minimum, crushes minimum if both minimum_in and minimum are given (only minimum_in in
+            used in the problem constraints). If demand is not dispatchable, will be force to minimum_in=value.
+        minimum_out (float | str): minimum of the energy flow in the sense Component -> Hub. Same format as minimum,
+            default value is minimum, crushes minimum if both minimum_out and minimum are given (only minimum_out in
+            used in the problem constraints). If demand is not dispatchable, will be force to minimum_in=value.
+        cost (float | str): cost value(s) of energy flow in and out of the component per energy type unit. Can be one
+            value or a sequence of the same duration of the simulation duration. In this case, a string describing
+            where the data is stored must be given under this form : "path/to/data.csv//column_name_of_cost". Value(s)
+            must be given in cost unit per unit of the energy type attached to the object. Default is 0. A positive
+            value is a cost, a negative value is a gain.
+        cost_in (float | str): minimum of the energy flow in the sense Hub -> Component. Same format as cost, default
+            value is -cost, crushes cost if both cost_in and cost are given (only cost_in in used in the problem
+            constraints).
+        cost_out (float | str): minimum of the energy flow in the sense Component -> Hub. Same format as cost, default
+            value is cost, crushes cost if both cost_out and cost are given (only cost_out in used in the problem
+            constraints).
+        factor (int | float | str): actual minimum and maximum flow values are multiplied by factor. Example of use: if the
+            input timeseries given as maximum_out describes the production of a 1 kWc PV panel but we want to have 5 kWc
+            of PV installed, set factor to 5 ; if the input timeseries describes a demand that we want to split as 50%
+            dispatchable and 50% not dispatchable, create to Demand objects (one with dispatchable=True, the other with
+            dispatchable=False) with this input timeseries and set factor=0.5 for both objects.
+        factor_low_bound (int | float): Used if factor is set to 'auto'. factor_low_bound <= factor.
+        factor_up_bound (int | float): Used if factor is set to 'auto'. factor_up_bound => factor.
+        factor_type (str): Used if factor is set to 'auto' and set the factor type. Can be 'Continuous', 'Integer' or 'Binary'.
+            Example of use for 'Integer' : how many PV panels of 200 Wc should be installed ? Example of use for 'Binary' :
+            should a generator be installed ? (Yes : factor=1., No : factor=0.)
+        installation_cost (float): Cost for one unit installed (factor=1.) Total installation cost will be
+            installation_cost * factor.
+        flow_vars_in (list[pulp.LpVariable]): List of length nb_of_timesteps containing the flow-in variables (from Hub to Component)
+            of the Component at each timestep. Once the problem solved, flow_vars_in[t].value() returns the optimized value of the
+            variable for each timestep t between 0 and nb_of_timesteps-1.
+        flow_vars_out (list[pulp.LpVariable]): List of length nb_of_timesteps containing the flow-out variables (from Hub to Component)
+            of the Component at each timestep. Once the problem solved, flow_vars_out[t].value() returns the optimized value of the
+            variable for each timestep t between 0 and nb_of_timesteps-1.
+    
+    Args:
+        name (str): Name of the component.
+        description (dict): Portion of the configuration file describing the characteristics of the component links.
+        nb_of_timesteps (int): Number of timesteps of the simulation.
+        log (bool): If True, additional information will be printed throughout the initialization.
+    """
     def __init__(self, name, description, nb_of_timesteps, log=False):
         super().__init__(name, description['energy'], description['environment'], description, nb_of_timesteps, log=log,)
         
@@ -493,22 +883,128 @@ class Source(Component):
             print(name + ' created.')
 
     def build_equations(self, hubs, model, log=False):
+        """
+        Calls method Component.link() to build variables and constraints related to the energy flows.
+
+        Args:
+            hubs (pandas.DataFrame): Table of all hubs.
+            model (pulp.LpProblem): Pulp linear problem to be optimized.
+            log (bool): If True, additional information will be printed throughout the process.
+        
+        Returns:
+            pandas.DataFrame: Updated table of all hubs.
+            pulp.LpProblem: Updated pulp linear problem to be optimized.
+        """
         hubs, model = self.link(hubs=hubs, model=model, log=log)
         if log:
             print(self.name + ' linked to hubs, model updated.')
         return hubs, model
     
 class EnvironmentsConnection(Component):
+    """
+    Sub-class of Component class used to represent the interface between two different environments.
+
+    Inherited Attributes:
+        name (str): Name of the component.
+        energy (str): Not used, forced to energy=''.
+        environment (str): Main environment of the component. For an EnvironmentsConnection object, corresponds
+            to environment1.
+        description (dict): Portion of the configuration file describing the characteristics of the links
+        nb_of_timesteps (int): Number of timesteps of the simulation.
+        maximum (float | str): maximum value(s) of energy flow in and out of the component. Can be one value
+            (ex: maximum electricity exchanges through grid) or a sequence of the same duration of the simulation
+            duration (ex: hourly PV production). In this case, a string describing where the data is stored must
+            be given under this form : "path/to/data.csv//column_name_of_maximum". Value(s) must be given in the
+            unit of the energy type attached to the object.
+        maximum_in (float | str): maximum of the energy flow in the sense Hub -> Component. Same format as maximum,
+            default value is maximum, crushes maximum if both maximum_in and maximum are given (only maximum_in in
+            used in the problem constraints).
+        maximum_out (float | str): maximum of the energy flow in the sense Component -> Hub. Same format as maximum,
+            default value is maximum, crushes maximum if both maximum_out and maximum are given (only maximum_out in
+            used in the problem constraints).
+        minimum (float | str): minimum value(s) of energy flow in and out of the component. Can be one value or a
+            sequence of the same duration of the simulation duration. In this case, a string describing where the
+            data is stored must be given under this form : "path/to/data.csv//column_name_of_minimum". Value(s)
+            must be given in the unit of the energy type attached to the object.
+        minimum_in (float | str): minimum of the energy flow in the sense Hub -> Component. Same format as minimum,
+            default value is minimum, crushes minimum if both minimum_in and minimum are given (only minimum_in in
+            used in the problem constraints). If demand is not dispatchable, will be force to minimum_in=value.
+        minimum_out (float | str): minimum of the energy flow in the sense Component -> Hub. Same format as minimum,
+            default value is minimum, crushes minimum if both minimum_out and minimum are given (only minimum_out in
+            used in the problem constraints). If demand is not dispatchable, will be force to minimum_in=value.
+        cost (float | str): cost value(s) of energy flow in and out of the component per energy type unit. Can be one
+            value or a sequence of the same duration of the simulation duration. In this case, a string describing
+            where the data is stored must be given under this form : "path/to/data.csv//column_name_of_cost". Value(s)
+            must be given in cost unit per unit of the energy type attached to the object. Default is 0. A positive
+            value is a cost, a negative value is a gain.
+        cost_in (float | str): minimum of the energy flow in the sense Hub -> Component. Same format as cost, default
+            value is -cost, crushes cost if both cost_in and cost are given (only cost_in in used in the problem
+            constraints).
+        cost_out (float | str): minimum of the energy flow in the sense Component -> Hub. Same format as cost, default
+            value is cost, crushes cost if both cost_out and cost are given (only cost_out in used in the problem
+            constraints).
+        factor (int | float | str): actual minimum and maximum flow values are multiplied by factor. Example of use: if the
+            input timeseries given as maximum_out describes the production of a 1 kWc PV panel but we want to have 5 kWc
+            of PV installed, set factor to 5 ; if the input timeseries describes a demand that we want to split as 50%
+            dispatchable and 50% not dispatchable, create to Demand objects (one with dispatchable=True, the other with
+            dispatchable=False) with this input timeseries and set factor=0.5 for both objects.
+        factor_low_bound (int | float): Used if factor is set to 'auto'. factor_low_bound <= factor.
+        factor_up_bound (int | float): Used if factor is set to 'auto'. factor_up_bound => factor.
+        factor_type (str): Used if factor is set to 'auto' and set the factor type. Can be 'Continuous', 'Integer' or 'Binary'.
+            Example of use for 'Integer' : how many PV panels of 200 Wc should be installed ? Example of use for 'Binary' :
+            should a generator be installed ? (Yes : factor=1., No : factor=0.)
+        installation_cost (float): Cost for one unit installed (factor=1.) Total installation cost will be
+            installation_cost * factor.
+        flow_vars_in (list[pulp.LpVariable]): List of length nb_of_timesteps containing the flow-in variables (from Hub to Component)
+            of the Component at each timestep. Once the problem solved, flow_vars_in[t].value() returns the optimized value of the
+            variable for each timestep t between 0 and nb_of_timesteps-1.
+        flow_vars_out (list[pulp.LpVariable]): List of length nb_of_timesteps containing the flow-out variables (from Hub to Component)
+            of the Component at each timestep. Once the problem solved, flow_vars_out[t].value() returns the optimized value of the
+            variable for each timestep t between 0 and nb_of_timesteps-1.
+
+    Attributes:
+        environment1 (str): Name of 1st environment to connect.
+        environment2 (str): Name of 2nd environment to connect.
+        vars_out (dict[str: list[pulp.LpVariable]]): Dictionnary with energy types common to both environment1 and environment2 as keys,
+            containing lists of length nb_of_timesteps containing the flow variables from Hub(environment1) to Hub(environment2) for each
+            common energy type. Once the problem solved, vars_out[energy][t].value() returns the optimized value of these flow variables
+            from for each timestep t between 0 and nb_of_timesteps-1.
+        vars_in (dict[str: list[pulp.LpVariable]]): Dictionnary with energy types common to both environment1 and environment2 as keys,
+            containing lists of length nb_of_timesteps containing the flow variables from Hub(environment2) to Hub(environment1) for each
+            common energy type. Once the problem solved, vars_in[energy][t].value() returns the optimized value of these flow variables
+            from for each timestep t between 0 and nb_of_timesteps-1.
+
+    Args:
+        environment1 (str): Name of 1st environment to connect.
+        environment2 (str): Name of 2nd environment to connect.
+        descriptions (dict): Sub-section of the configuration file describing the characteristics of the links.
+        i (int): Used to iterate within a list of specifications.
+        nb_of_timesteps (int): Number of timesteps of the simulation.
+        log (bool): If True, additional information will be printed throughout the initialization.
+    """
     def __init__(self, environment1, environment2, descriptions, i, nb_of_timesteps, log=False):
         self.environment1 = environment1
         self.environment2 = environment2
-        self.status = 'Not connected'
-        self.nb_of_timesteps = nb_of_timesteps
         name = self.environment1 + '_' + self.environment2
 
         super().__init__(name, '', environment1, description=descriptions, i=i, nb_of_timesteps=nb_of_timesteps, isHub=False, log=log,)
         
-    def connect_as_input(self, hubs, model):
+    def connect_as_input(self, hubs, model, log=False):
+            """
+            Creates vars_out and vars_in to store the flow variables between hubs of environment1 and hubs of environment2, add them
+            to hubs of environment1 and hubs of environment2 equations, adds minimum and maximum constraints (describing the connection
+            conditions between the two environments) to the linear problem, and updates the model objective function with costs attributed
+            to the flow variables.
+
+            Args:
+                hubs (pandas.DataFrame): Table of all hubs.
+                model (pulp.LpProblem): Pulp linear problem to be optimized.
+                log (bool): If True, additional information will be printed throughout the process.
+            
+            Returns:
+                pandas.DataFrame: Updated table of all hubs.
+                pulp.LpProblem: Updated pulp linear problem to be optimized.
+            """
             self.vars_out = {}
             self.vars_in = {}
             # If connexion time slots between environment 1 and environment 2 is an input data (then never a variable)
@@ -517,15 +1013,15 @@ class EnvironmentsConnection(Component):
                     # Create flow variables between hub1 and hub2
                     hub1_to_hub2 = [pl.LpVariable(energy + '_' + self.environment1 + '_hub_to_'
                                                 + self.environment2 + '_hub_'
-                                                + str(t),
-                                                lowBound=0.) for t in range(hub1.nb_of_timesteps)]
+                                                + str(t)) for t in range(hub1.nb_of_timesteps)]
                     hub2_to_hub1 = [pl.LpVariable(energy + '_' + self.environment2 + '_hub_to_'
                                                 + self.environment1 + '_hub_'
-                                                + str(t),
-                                                lowBound=0.) for t in range(hub1.nb_of_timesteps)]
+                                                + str(t)) for t in range(hub1.nb_of_timesteps)]
                     
-                    # Set an upBound to flow between environment1 and environment2 (= 0. when disconnected)
+                    # Set bounds to flow between environment1 and environment2 (= 0. when disconnected)
                     for t in range(hub1.nb_of_timesteps):
+                        model += hub1_to_hub2[t] >= bound(self.minimum_out, t)
+                        model += hub2_to_hub1[t] >= bound(self.minimum_in, t)
                         model += hub1_to_hub2[t] <= bound(self.maximum_out, t)
                         model += hub2_to_hub1[t] <= bound(self.maximum_in, t)
 
@@ -546,554 +1042,7 @@ class EnvironmentsConnection(Component):
                     model.objective += pl.lpSum([hub1_to_hub2[t]*bound(self.cost_out, t)])
                     model.objective += pl.lpSum([hub2_to_hub1[t]*bound(self.cost_in, t)])
 
-                    print(hub1.name + ' and ' + hub2.name + ' connected')
-            self.status = 'Connected'
+                    if log:
+                        print(hub1.name + ' and ' + hub2.name + ' connected')
 
             return hubs, model
-    
-    def trailer_config_connection(self, hubs, conditions):
-        # TRAILER IS SUPPOSED TO BE ENVIRONMENT 1
-        timeslots = get_connection_timeslots(conditions)
-        self.switchs = [pl.LpVariable('switch_'
-                                      + self.environment1 + '_'
-                                      + self.environment2 + '_'
-                                      + self.environment3 + '_'
-                                      + str(i)) for i in range(len(timeslots))]
-        
-        def do_one_connection(env1, env2, sense):
-            for hub1, hub2, energy in zip(hubs.loc[env1], hubs.loc[env2], hubs.columns):
-                print(energy)
-                if type(hub1) == Hub and type(hub2) == Hub:
-                    print('hubs both exist')
-                    # Create flow variables between hub1 and hub2
-                    hub1_to_hub2 = [pl.LpVariable(energy + '_'
-                                                  + env1 + '_hub_to_'
-                                                  + env2 + '_hub_'
-                                                  + str(t),
-                                                  lowBound=get_bounds(t, self.switchs, timeslots, conditions, sense)[0],
-                                                  upBound=get_bounds(t, self.switchs, timeslots, conditions, sense)[1])
-                                                  for t in range(self.nb_of_timesteps)]
-                    # Add these new variables in the two hubs equations
-                    hub1.add_link(hub1_to_hub2, component_name=self.energy + '_' + env2 + '_to_' + env1, sign='-')
-                    hub2.add_link(hub1_to_hub2, component_name=self.energy + '_' + env1 + '_to_' + env2)
-
-                    # Update the hubs table
-                    hubs.loc[env1, energy] = hub1
-                    hubs.loc[env2, energy] = hub2
-
-                    # Save flow variables in self.vars
-                    self.vars.update({energy: hub1_to_hub2})
-
-                    print(hub1.name + ' and ' + hub2.name + ' connected')
-                else:
-                    print("hubs don't both exist")
-
-        # Environment 1 - environment 2 connection
-        do_one_connection(self.environment1, self.environment2, sense=1)
-        # Environment 1 - environment 3 connection
-        do_one_connection(self.environment1, self.environment3, sense=-1)
-
-        self.status = 'Connected'
-
-        return hubs
-
-class Model():
-    def __init__(self, config_file='general_config_file.yaml', elements_list='elements_list.yaml', data=''):
-        with open(config_file, 'r') as file:
-            self.config_file = yaml.safe_load(file)
-            self.config_file = self.config_file
-        self.run_num = self.config_file['run_num']
-        self.run_name = self.config_file['run_name']
-        self.energies = get_from_elements_list('energy', elements_list)
-        self.environments = get_from_elements_list('environment', elements_list)
-        try:
-            self.data = pd.read_csv(data, sep=';')
-        except FileNotFoundError:
-            self.data = None
-        # self.conditions = utils.get_chronicle2(config_file['conditions'], 'hourly')
-        self.time = utils.get_chronicle_from_path(self.config_file['time'], 'hourly')
-        self.elements_list = elements_list
-        self.optimization_variable = self.config_file['optimization_variable']
-        if self.config_file['optimization_sense'] == 'minimize':
-            sense = pl.LpMinimize
-        elif self.config_file['optimization_sense'] == 'maximize':
-            sense = pl.LpMaximize
-        self.model = pl.LpProblem(self.optimization_variable, sense)
-        self.components = {}
-        self.nb_of_timesteps = len(self.time)
-        self.model.objective = pl.LpAffineExpression()
-
-        # Create a directory for this run
-        self.directory = str(self.run_num) + '_' + self.run_name
-        if not os.path.exists(self.directory):
-            os.makedirs(self.directory)
-        else :
-            print('Warning : overwriting run ' + self.directory)
-
-        # Save config files
-        shutil.copy(config_file, self.directory + '/' + config_file)
-        shutil.copy(elements_list, self.directory + '/' + elements_list)
-    
-    def initialize_hubs(self):
-        self.hubs = pd.DataFrame(index=self.environments,
-                                 columns=self.energies)
-        
-    def build_environment_level_variables_and_constraints(self, log=False):
-        # Different types of components available
-        classes = {'Source': Source,
-                   'Demand': Demand,
-                   'Storage': Storage,
-                   'Converter': Converter,}
-        # For each type of component:
-        for class_ in classes.keys():
-            # Get specs from the config file
-            try : components_specs = get_components(self.elements_list, class_)
-            except KeyError :
-                if log:
-                    print('No ' + class_ + ' found.')
-                continue # If no Storage or Converter or ... element, do nothing and continue
-            self.components.update({class_: {}})
-            # For each component of this type:
-            for component_name in components_specs.keys():
-                if components_specs[component_name]['activate']: # If component is activated
-                    if log:
-                        print('Found ' + component_name)
-                    # Create object (Source, Demand, Storage or Converter) from the specs
-                    component = classes[class_](component_name,
-                                                components_specs[component_name],
-                                                nb_of_timesteps=self.nb_of_timesteps,
-                                                log=log,)
-                    # Link the component object to its hub(s)
-                    self.hubs, self.model = component.build_equations(hubs=self.hubs, model=self.model, log=log)
-                    # self.hubs = component.link(self.hubs, log=False)
-                    # Save the component
-                    self.components[class_].update({component_name: component})
-
-    def add_hubs_equations_to_model(self, log=False):
-        # To be used once all elements are added to the model
-        # ie when hubs equations are completed
-        # For each possible hub:
-        for environment in self.environments:
-            for energy in self.energies:
-                hub = self.hubs.loc[environment, energy]
-                # If the hub exists
-                if type(hub) == Hub:
-                    # Choose to display logs or not
-                    if log:
-                        print(hub.name)
-                    # Add its equation to the model
-                    for hub_equation in hub.equation:
-                        self.model += hub_equation
-
-    def connect_environments(self):
-         # Get connections description
-        environments_connections = self.config_file['environments_connections']
-        self.environmentsConnections = {}
-
-        if environments_connections is None:
-            print('No environments connections')
-
-        else:
-            for environment1 in environments_connections.keys():
-                descriptions = environments_connections[environment1]
-                envs = descriptions['envs']
-                
-                for i, environment2 in enumerate(envs):
-                    co = EnvironmentsConnection(environment1, environment2, descriptions, i, self.nb_of_timesteps)
-                    self.hubs, self.model = co.connect_as_input(self.hubs, self.model)
-                    self.environmentsConnections.update({environment1 + '_' + environment2: co})
-                    
-    def solve(self, log=False):
-        # Call solver and solve the problem
-        self.model.solve(pl.PULP_CBC_CMD(timeLimit=20, msg=True))
-        print('Problem solved with status: ' + pl.LpStatus[self.model.status])
-        # Record timestamp of simulation
-        self.simu_time = datetime.now()
-        # Record the optimal value of the objective function
-        self.objective_value = pl.value(self.model.objective)
-
-        # Record the dispatching solution (= all optimal values of the problem variables)
-        self.dispatch = pd.DataFrame(index=[t for t in range(self.nb_of_timesteps)])
-        
-        # Get primary energy flows values
-        for class_ in ['Source', 'Demand', 'Storage', 'Converter']:
-            if log:
-                print(class_)
-            columns = self.components[class_].keys()
-            for column in columns:
-                if log:
-                    print(column)
-                self.dispatch.insert(loc=0, column=column, value=np.zeros(self.nb_of_timesteps))
-                if not class_=='Converter':
-                    for t in tqdm(self.dispatch.index):
-                        self.dispatch.loc[t, column] = (value(self.components[class_][column].flow_vars_out[t])
-                                                        - value(self.components[class_][column].flow_vars_in[t]))
-                elif class_=='Converter':
-                    for t in tqdm(self.dispatch.index):
-                        self.dispatch.loc[t, column] = - value(self.components[class_][column].flow_vars_in[t])
-
-        # Get SOC values
-        try:
-            # storage_components = get_components(self.elements_list, 'Storage').keys()
-            storage_components = self.components['Storage'].keys()
-            for component in storage_components:
-                self.dispatch.insert(loc=0,
-                                    column=component + '_SOC',
-                                    value=[value(self.components['Storage'][component].SOC[t]) for t in range(self.nb_of_timesteps)])
-        except KeyError:
-            pass
-            
-        # Get output flows from conversion devices
-        # conversion_components = get_components(self.elements_list, 'Conversion').keys()
-        conversion_components = self.components['Converter'].keys()
-        for component in conversion_components:
-            for output_energy in self.components['Converter'][component].output_energies.keys():
-                self.dispatch.insert(loc=0,
-                                    column=component + '_' + output_energy,
-                                    value=[value(self.components['Converter'][component].flow_vars_out[output_energy][t]) for t in range(self.nb_of_timesteps)])
-        
-        # Get exchanges between environments
-        for name in self.environmentsConnections.keys():
-            environments_connection = self.environmentsConnections[name]
-            environment1 = environments_connection.environment1
-            environment2 = environments_connection.environment2
-
-            for energy in environments_connection.vars_out.keys():
-                self.dispatch.insert(loc=0,
-                                     column=energy + '_'
-                                     + environment1 + '_hub_to_'
-                                     + environment2 + '_hub',
-                                     value=[(value(environments_connection.vars_out[energy][t])
-                                             - value(environments_connection.vars_in[energy][t])) for t in range(self.nb_of_timesteps)])
-                self.dispatch.insert(loc=0,
-                                     column=energy + '_'
-                                     + environment2 + '_hub_to_'
-                                     + environment1 + '_hub',
-                                     value=[(value(environments_connection.vars_in[energy][t])
-                                             - value(environments_connection.vars_out[energy][t])) for t in range(self.nb_of_timesteps)])
-
-        # Get hubs losses values
-        # For each possible hub:
-        for environment in self.environments:
-            for energy in self.energies:
-                hub = self.hubs.loc[environment, energy]
-                # If the hub exists
-                if type(hub) == Hub:
-                    self.dispatch.insert(loc=0,
-                                         column='unused_' + environment + '_' + energy,
-                                         value=[-value(hub.unused_energy[t]) for t in range(self.nb_of_timesteps)])
-
-        # Add time
-        self.dispatch.insert(loc=0,
-                             column='time',
-                             value=self.time)
-
-        # Save in a .csv file
-        solution_file = str(self.run_num) + '_' + self.run_name + '_dispatch.csv'
-        self.dispatch.to_csv(self.directory + '/' + solution_file)
-
-        # Prepare self.dispatch columns for plot
-        # self.dispatch = duplicate(self.dispatch)
-        self.dispatch.time = get_timeline(self.time)
-        self.dispatch = self.dispatch.astype({'time': 'datetime64[ns]'})
-
-        # Prepare self.data for plot
-        # self.data.time = get_timeline(self.time)
-        # self.data = self.data.astype({'time': 'datetime64[ns]'})
-
-    def hub_vars(self, environment, energy):
-        # List of flow variables linked to Hub(environment, energy)
-        list_of_vars = []
-        # Get connections between environments 
-        for name in self.environmentsConnections.keys():
-            co = self.environmentsConnections[name]
-            if co.environment1 == environment:
-                for energy_type in co.vars_in.keys():
-                    if energy_type == energy:
-                        list_of_vars.append('_'.join([energy, co.environment2, 'hub', 'to', environment, 'hub']))
-            elif co.environment2 == environment:
-                for energy_type in co.vars_out.keys():
-                    if energy_type == energy:
-                        list_of_vars.append('_'.join([energy, co.environment1, 'hub', 'to', environment, 'hub']))
-            else: pass
-        # Get components flow variables linked to Hub(environment, energy)
-        list_of_vars = self.hubs.loc[environment, energy].component_names + list_of_vars
-        # Get energy losses of Hub(environment, energy)
-        list_of_vars.append('unused_' + environment + '_' + energy)
-
-        return  list_of_vars
-    
-    def plot_hubs(self, save=False, log=False, co=False, env1='', env2='', price=None, unit=''):
-        # One plot per hub that exists
-        nb_of_plots = self.hubs.notna().sum().sum()
-        if log:
-            print(str(nb_of_plots) + ' subplot(s) to be plotted.')
-        fig = plt.figure(figsize=(21, 6*nb_of_plots), layout='constrained')
-        # Position of the 1st plot within the figure
-        ax_position = nb_of_plots*100 + 10 + 1
-        for environment in self.environments:
-            for energy in self.energies:
-                hub = self.hubs.loc[environment, energy]
-                # If hub exists :
-                if type(hub) == Hub:
-                    ax = fig.add_subplot(ax_position) # Create the frame hub's plot
-                    ax_position += 1 # Position of the next plot within the figure
-                    title = 'Hub ' + environment + ' ' + energy
-                    if log:
-                        print('Plot at position number ' + str(ax_position) + ': ' + title)
-                    # Get hub flows names
-                    variables = list(dict.fromkeys(self.hub_vars(environment, energy)))
-                    if log:
-                        print(variables)
-                    if co:
-                        env1_env2 = self.environmentsConnections[env1 + '_' + env2].maximum_out
-                    else:
-                        env1_env2 = None
-                    # Plot hub flows
-                    ax = plot_vars_car_connected_version(self.dispatch,
-                                                         self.data,
-                                                         None,
-                                                         variables,
-                                                         ax,
-                                                         title=title,
-                                                         price=price,
-                                                         co=co,
-                                                         env1_env2=env1_env2,
-                                                         env1=env1,
-                                                         env2=env2,
-                                                         unit=unit,)
-                    # Place a legend with the subplot
-                    ax.legend(loc='best', ncols=2, frameon=False, fontsize=18).set_zorder(50)
-        
-        if save:
-            file = str(self.run_num) + '_' + self.run_name + '/' + str(self.run_num) + '_' + self.run_name + '.png'
-            fig.savefig(file)
-            print('Saved at: ' + file)
-    
-    def plot_SOC(self, variables='all', unit='', save=False, log=False):
-
-        # Time management
-        self.dispatch.index = self.dispatch['time']
-
-        # Plot SOC of all storage means on the same graph - beware of the units
-        if variables == 'all':
-            variables = []
-            for storage_name in self.components['Storage'].keys():
-                variables.append(self.components['Storage'][storage_name].name)
-        
-        # Create figure
-        fig = plt.figure(figsize=(21, 6))
-        ax = fig.add_subplot(111)
-        for i, var in enumerate(variables): # For each storage
-            try:
-                total_capa = self.components['Storage'][var].capacity * value(self.components['Storage'][var].volume_factor)
-                ax.hlines(total_capa,
-                            xmin=self.dispatch['time'].values[0],
-                            xmax=self.dispatch['time'].values[-1],
-                            color=COLORS[i],
-                            ls='--',
-                            alpha=0.5,
-                            lw=2.5)
-                ax.plot(self.dispatch[var + '_SOC'],
-                        color=COLORS[i],
-                        label=get_label(var),
-                        lw=2.5)
-            except KeyError:
-                pass
-        ax.legend(fontsize=18)
-        ax.set_ylabel(unit, fontsize=18)
-        ax.set_xlim((self.dispatch['time'].values[0], self.dispatch['time'].values[-1]))
-        ax.set_title('SOC')
-        ax.spines[['right', 'top']].set_visible(False)
-
-        if save:
-            file = str(self.run_num) + '_' + self.run_name + '/' + str(self.run_num) + '_' + self.run_name + '_SOC_' + '_'.join(variables) + '.png'
-            fig.savefig(file)
-            print('Saved at: ' + file)
-
-    def get_design(self, components, factors, units=None):
-        table = pd.DataFrame(columns=components)
-        for i, component in enumerate(components):
-            for class_ in self.components.keys():
-                components_of_type = self.components[class_]
-                if component in components_of_type.keys():
-                    table.loc[factors[i], component] = value(components_of_type[component].__getattribute__(factors[i]))
-        if units is not None:
-            # Add units to columns names
-            table.columns = [components[i] + ' (' + units[i] + ')' for i in range(len(components))]
-
-        return table
-
-
-def bound(value, t):
-    try:
-        return value[t]
-    except TypeError:
-        return value
-    # if value_type == 'constant' or value_type is None:
-    #     return value
-    # else:
-    #     return value[t]
-
-def get_connection_timeslots(conditions):
-    timeslots = pd.DataFrame(columns=['deconnection_time', 'connection_time'])
-    old = conditions.values.astype(int)[:-1] # conditions[t]
-    new = conditions.values.astype(int)[1:] # consitions[t-1]
-    # Quand la dérivée est non nulle, la connexion change d'état (connectée / déconnectée)
-    deco = np.where(new-old==-1)[0] # Dérivée négative -> deconnexion
-    co = np.where(new-old==1)[0] # Dérivée positive -> connexion
-    timeslots['deconnection_time'] = deco
-    timeslots['connection_time'] = co
-    return timeslots
-
-def get_bounds(t, switchs, timeslots, conditions, sense):
-    if conditions[t]: # Environments are connected
-        return None, None # Then no connection limitations
-    else:
-        i = 0
-        while timeslots.loc[i, 'deconnection_time'] > t:
-            i += 1
-        # sense == 1 or sense == -1
-        lowBound = sense * M * switchs[i]
-        upBound = sense * -M * (1-switchs[i])
-
-        return lowBound, upBound
-    
-def get_components(file_of_components_list, components_class):
-    with open(file_of_components_list, 'r') as file:
-        components_list = yaml.safe_load(file)
-    return components_list[components_class]
-
-def value(flow_vars_t):
-    # flow_t is not a var but an input data
-    if type(flow_vars_t) == float or type(flow_vars_t) == np.float64 or type(flow_vars_t) == int:
-        return flow_vars_t
-    # flow_t is a pl.LpVariable
-    else:
-        return flow_vars_t.value()
-    
-def get_from_elements_list(keyword, elements_list):
-    energies = []
-    with open(elements_list, 'r') as file:
-        data = file.read()
-        parameters = data.split('\n')
-        for parameter in parameters:
-            try:
-                if parameter[0] == '#':
-                    continue
-                if keyword in parameter:
-                    energies.append(parameter.split(':')[1][2:-1])
-            except IndexError:
-                pass
-        energies = np.unique(energies)
-        l = []
-        for energy in energies:
-            l.append(str(energy))
-    return l
-
-def duplicate(dispatch):
-    for column in dispatch.columns:
-        # Duplicate and reverse every energy flow between hubs
-        if 'hub' in column:
-            words = column.split('_')
-            words_reordered = [words[i] for i in [0, 4, 2, 3, 1, 5]]
-            new_column = '_'.join(words_reordered)
-            dispatch.insert(loc=1, column=new_column, value=-dispatch[column])
-    return dispatch
-
-def get_label(string):
-    words = string.split('_')
-    translation = ''
-    for word in words:
-        # translation += dictionnary[word] + ' '
-        translation += word + ' '
-    return translation[:-1]
-
-def capitalise(string):
-    return string[0].upper() + string[1:]
-
-def plot_vars_car_connected_version(dispatch, data, top_var, variables, ax, title,
-                                    price=None, co=False, env1_env2=None, env1='', env2='',
-                                    unit=None, start=0, end=0):
-
-    dispatch = dispatch[start:len(dispatch)-end]
-
-    variables = [var for var in variables if var in dispatch.columns]
-
-    # Get max and sum values
-    max_value = dispatch[variables].max().max()
-    positive_total = dispatch[variables].clip(lower=0).sum().sum()
-    negative_total = dispatch[variables].clip(upper=0).sum().sum()
-    
-    # Indicate when car is connected
-    if co:
-        env1_env2 = env1_env2[start:len(env1_env2)-end]
-        ax.fill_between(x=dispatch['time'], y1=env1_env2*max_value/max(env1_env2),
-                        step="mid", alpha=0.2, color='#219EBC', hatch='/', edgecolor='w',
-                        label='Connection between ' + env1 + ' and ' + env2)
-    
-    # Plot the aggregated variable as a bold line
-    if type(top_var)==str:
-        ax.step(x=dispatch['time'], y=dispatch[top_var], label=capitalise(get_label(top_var)), lw=2., where='mid', zorder=2)
-    
-    # Stack plot of the components variables
-    positive_stack = np.zeros(len(dispatch))
-    negative_stack = np.zeros(len(dispatch))
-
-    zorders = [len(variables)-i+3 for i in range(len(variables))]
-    for i, var in enumerate(variables):
-        positive_values = dispatch[var].clip(lower=0)
-        negative_values = dispatch[var].clip(upper=0)
-        if top_var=='PV' or top_var=='conso':
-            rate = dispatch[var].sum()/top_var
-            label = capitalise(get_label(var)) + ' (' + str(round(rate*100)) + '%)'
-        else:
-            try:
-                positive_rate = positive_values.sum()/positive_total
-            except ZeroDivisionError:
-                positive_rate = 0.
-            try:
-                negative_rate = negative_values.sum()/negative_total
-            except ZeroDivisionError:
-                negative_rate = 0.
-            label = capitalise(get_label(var)) + ' (' + str(round(positive_rate*100)) + '%$\\uparrow$ ' + str(round(negative_rate*100)) + '%$\\downarrow$)'
-
-        # Positive values
-        ax.bar(x=dispatch['time'], height=positive_values,
-            color=COLORS[i], label=label,
-            width=dispatch['time'].values[1] - dispatch['time'].values[0], zorder=zorders[i], bottom=positive_stack)
-        # Negative values
-        ax.bar(x=dispatch['time'], height=negative_values,
-            color=COLORS[i], # label=get_label(var) + ' (' + str(round(rate*100)) + '%)',
-            width=dispatch['time'].values[1] - dispatch['time'].values[0], zorder=zorders[i], bottom=negative_stack)
-        
-        positive_stack = positive_stack + positive_values
-        negative_stack = negative_stack + negative_values
-
-    # Plot electricity prices with its own axis
-    if price is not None:
-        path, var_type, label = price
-        price = utils.get_chronicle_from_path(path=path, type=var_type)
-        price = price[start:len(price)-end]
-        ax2 = ax.twinx()
-        ax2.step(x=dispatch['time'], y=price, color='#333333', alpha=0.7, where='mid', label=label)
-        ax2.set_ylabel('Electricity price (€/MWh)', fontsize=18)
-        ax2.spines[['left', 'top']].set_visible(False)
-        ymin, ymax = ax.get_ylim()
-        ymin2, ymax2 = price.min(), price.max()
-        YMIN = ymin*(ymax2-ymin2)/(ymax-ymin)*3
-        YMAX = ymax*(ymax2-ymin2)/(ymax-ymin)*3
-        ax2.set_ylim(YMIN, YMAX)
-
-    ax.set_xlim(dispatch['time'].values[0], dispatch['time'].values[-1])
-    ax.set_ylabel(unit, fontsize=18)
-    ax.set_title(title, fontsize=20)
-    ax.spines[['right', 'top']].set_visible(False)
-
-    return ax
-
-def get_timeline(time):
-    new_time = np.empty(len(time), dtype=datetime)
-    for i, t in enumerate(time):
-        new_time[i] = datetime.strptime(t, '%Y%m%d:%H')
-    return new_time
