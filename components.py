@@ -218,9 +218,8 @@ class Component:
         model.objective += self.factor*self.installation_cost
 
         # Add flow cost to the model objective function
-        if model.name == 'cost':
-            model.objective += pl.lpSum([self.flow_vars_out[t]*bound(self.cost_out, t)
-                                         + self.flow_vars_in[t]*bound(self.cost_in, t) for t in range(self.nb_of_timesteps)])
+        model.objective += pl.lpSum([self.flow_vars_out[t]*bound(self.cost_out, t)
+                                    + self.flow_vars_in[t]*bound(self.cost_in, t) for t in range(self.nb_of_timesteps)])
 
         if log:
             print('Flow vars added to model')
@@ -770,7 +769,9 @@ class Demand(Component):
         if self.dispatchable:
             # Check
             # if np.mean(self.value*self.factor) >= self.maximum_hourly_dispatch:
-            if  np.mean(self.value*self.factor) >= self.maximum_in:
+            if  np.mean(self.value) >= self.maximum_in:
+                print('ERROR: maximum hourly dispatch allowed for consumption is not sufficient, ' \
+                'must be at least ' + str(round(np.mean(self.value))+1))
                 raise Exception('ERROR: maximum hourly dispatch allowed for consumption is not sufficient, ' \
                 'must be at least ' + str(round(np.mean(self.value))+1))
 

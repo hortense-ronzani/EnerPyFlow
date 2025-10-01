@@ -332,7 +332,7 @@ class Model():
 
         return  list_of_vars
     
-    def plot_hubs(self, save=False, log=False, co=False, env1='', env2='', price=None, unit=''):
+    def plot_hubs(self, save=False, log=False, co=False, env1='', env2='', price=None, unit='', start=0, end=0):
         """
         Plots energy flows of all hubs that exist, depending on the time.
 
@@ -345,6 +345,9 @@ class Model():
             price (tuple(str | float, str)| None): If not None, additional line to be plotted on a second axis on all subplots.
                 Must be under the form (path_to_column | value). Ex: ('data_sample.csv//Electricity_price (euros/MWh)', 'Electricity price (€/MWh)').
             unit (str): Unit of energy flows, for legend.
+            start (int): Index of the data where to start to plot. Ex: start=2 -> start at the second value.
+            end (int): len(dispatch)-end is the index of the data where to stop to plot Ex: stop=1 -> stop at
+                the penultimate value.
         """
         # One plot per hub that exists
         nb_of_plots = self.hubs.notna().sum().sum()
@@ -382,7 +385,9 @@ class Model():
                                         env1_env2=env1_env2,
                                         env1=env1,
                                         env2=env2,
-                                        unit=unit,)
+                                        unit=unit,
+                                        start=start,
+                                        end=end,)
                     # Place a legend with the subplot
                     ax.legend(loc='best', ncols=2, frameon=False, fontsize=18).set_zorder(50)
         
