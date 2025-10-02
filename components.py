@@ -616,10 +616,10 @@ class Storage(Component):
                                         rhs=0),]
         
         # Final condition
-        self.equation = [pl.LpConstraint(e=self.SOC[self.nb_of_timesteps-1] - self.final_SOC * self.capacity * self.volume_factor,
+        self.equation.append(pl.LpConstraint(e=self.SOC[self.nb_of_timesteps-1] - self.final_SOC * self.capacity * self.volume_factor,
                                         sense=pl.LpConstraintEQ,
                                         name='final_condition_' + self.name + '_' + str(self.nb_of_timesteps-1),
-                                        rhs=0),]
+                                        rhs=0))
 
         # Storage equation    
         for t in range(1, self.nb_of_timesteps):
