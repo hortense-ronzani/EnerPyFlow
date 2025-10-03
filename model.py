@@ -142,6 +142,7 @@ class Model():
                         self.hubs, self.model = component.build_equations(hubs=self.hubs, model=self.model, log=log)
                     except AttributeError:
                         raise Exception("ERROR: Model.hubs doesn't exist. Run Model.initialize_hubs() first.")
+                    
                     # Save the component
                     self.components[class_].update({component_name: component})
 

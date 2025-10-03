@@ -790,9 +790,8 @@ class Demand(Component):
                                                         + '_to_' + str(t),
                                                         lowBound=bound(self.minimum, t)) for t in range(tmin, tmax)]
 
-
                 # Add constraint Somme_t(y_vars[t0, t]) = input_consumption[t0]
-                model += pl.lpSum(y_t_initial) == value(self.value[t_initial])*self.factor
+                model += pl.lpSum(y_t_initial) == value(bound(self.value, t_initial))*self.factor
                 
                 column = 'y_' + self.name+ '_from_' + str(t_initial)
                 y_vars[column] = y_t_initial

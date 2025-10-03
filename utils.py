@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 import yaml
+import pulp as pl
 
 # Skip modules installation
 import os
@@ -111,12 +112,20 @@ def value(flow_vars_t):
     Returns:
         float | int: Value of the element.
     """
-    # flow_t is not a var but an input data
-    if type(flow_vars_t) == float or type(flow_vars_t) == np.float64 or type(flow_vars_t) == int:
-        return flow_vars_t
-    # flow_t is a pl.LpVariable
+    if False:
+        # flow_t is not a var but an input data
+        if type(flow_vars_t) == float or type(flow_vars_t) == np.float64 or type(flow_vars_t) == int or type(flow_vars_t) == np.int64:
+            return flow_vars_t
+        # flow_vars_t is a pl.LpVariable
+        else:
+            return flow_vars_t.value()
     else:
-        return flow_vars_t.value()
+        # flow_t is not a var but an input data
+        if type(flow_vars_t) == pl.LpVariable:
+            return flow_vars_t.value()
+        # flow_vars_t is a pl.LpVariable
+        else:
+            return flow_vars_t
     
 def get_from_elements_list(keyword, elements_list):
     """
@@ -245,7 +254,10 @@ def plot_one_hub(dispatch, top_var, variables, ax, title,
                 negative_rate = negative_values.sum()/negative_total
             except ZeroDivisionError:
                 negative_rate = 0.
-            label = capitalise(get_label(var)) + ' (' + str(round(positive_rate*100)) + '%$\\uparrow$ ' + str(round(negative_rate*100)) + '%$\\downarrow$)'
+            try:
+                label = capitalise(get_label(var)) + ' (' + str(round(positive_rate*100)) + '%$\\uparrow$ ' + str(round(negative_rate*100)) + '%$\\downarrow$)'
+            except ValueError:
+                label = capitalise(get_label(var)) + ' (0%$\\uparrow$ 0%$\\downarrow$)'
 
         # Positive values
         ax.bar(x=dispatch['time'], height=positive_values,
